@@ -1,0 +1,7 @@
+name: tf2.0-env
+channels:
+- conda-forge/label/cf202003
+dependencies:
+- matplotlib
+- numpy
+
