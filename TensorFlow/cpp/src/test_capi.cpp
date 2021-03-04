@@ -10,7 +10,7 @@ int main() {
   TF_SessionOptions* SessionOpts = TF_NewSessionOptions();
   TF_Buffer* RunOpts = NULL;
 
-  const char* saved_model_dir = "/work/gratienj/BigData/dl_serialization/TensorFlow/python/mnist/model/"; // Path of the model
+  const char* saved_model_dir = "../../../model/mnist/model/"; // Path of the model
   const char* tags = "serve"; // default model serving tag; can change in future
   int ntags = 1;
 

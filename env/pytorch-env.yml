@@ -1,0 +1,12 @@
+name: pytorch-env
+channels:
+- conda-forge/label/cf202003
+- pytorch
+dependencies:
+- python=3.6
+- multiprocess
+- matplotlib
+- cudatoolkit=10.0
+- numpy
+- scipy
+- pytorch

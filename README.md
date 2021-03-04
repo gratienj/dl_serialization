@@ -8,11 +8,11 @@ Two Tutorial directories :
 - TensorFlow
 - PyTorch
 
-For each tutorial there are :
+For each tutorial there are 2 directories:
 - python : directory with scripts to create and save a trained model
 - cpp : directories with sources and CMake environnement to load a saved model and realize a prediction
  
-## II/ RAPPEL GESTION ENVIRONNEMENT CONDA
+## II/ QUICK SHEET CONDA ENVIRONMENT MANAGEMMENT
 
 Conda permet de gérer précisément son envitonnement python et de l'exporter facilement sur des clusters.
 
@@ -48,7 +48,7 @@ export CONDA_ENVS_PATH=<path_to_shared_unlimited_disk>/conda/env
 export CONDA_PKGS_DIRS=<path_to_shared_unlimited_disk>/conda/pkgs
 ```
 
-### Rappels des commandes utiles
+### Usufull commands
 
 ```bash
 > conda env list # liste des environnment disponible
@@ -57,15 +57,16 @@ export CONDA_PKGS_DIRS=<path_to_shared_unlimited_disk>/conda/pkgs
 > conda deactivate my-env # activate a specific environnement with name "my-env"
 ```
 
-### Creation et mise à jours des environnements
-Les environnements peuvent etre clonés, puis updatés
+### Environment creation and update
+
+Environnements can be cloned then updated
 ```bash
 conda create --name my-env-p37 python=3.7          # create env with python 3.7
 conda update -n my-env-p37 toto=2.1                # add to my-env-p37 package toto version 2.1
 conda create --name myclone-env --clone my-env-p37 # clone my-env-p37 to new env myclone-env
 ```
 
-### Packaging des environnements pour export
+### Packaging environnements to export
 
 conda-pack is a command line tool for creating relocatable conda environments. 
 This is useful for deploying code in a consistent environment, potentially in a 
@@ -75,9 +76,9 @@ location where python/conda isn’t already installed.
 > conda install -c conda-forge conda-pack
 ```
 
-Utilisation:
+Usage:
 
-- Sur la machine source
+- On source machine
 ```bash
 # Pack environment my_env into my_env.tar.gz
 $ conda pack -n my_env
@@ -89,7 +90,7 @@ $ conda pack -n my_env -o out_name.tar.gz
 $ conda pack -p /explicit/path/to/my_envh
 ```
 
-- Sur la machine cible
+- On target machine
 ```bash
 # Unpack environment into directory `my_env`
 $ mkdir -p my_env
@@ -119,9 +120,11 @@ $ source my_env/bin/activate
 (my_env) $ source my_env/bin/deactivate
 ```
 
-## III/ MISE EN PLACE DE l ENVIRONNEMENT CONDA tensorflow-env 
+## III/ TensorFlow ENVIRONMENT SetUP
 
-- Fichier tensorflow-env.yml :
+### A/  Conda Environnement
+
+- tensorflow-env.yml file :
  
  ```bash
  name: tensorflow-env
@@ -131,15 +134,14 @@ dependencies:
 - matplotlib
 - numpy
  ```
-
- 
- - Fichier tf2-env-requirement.txt
+ - tf2-env-requirement.txt file
  ```bash
 tensorflow==2.0.0
  ```
 - Creation d un environnement conda avec les commandes suivantes
  ```bash
  conda env create -f tensorflow-env.yml
+ conda activate tensorfow-env
  pip install -r tf2-env-requirement.txt
  ```
 ou
@@ -151,9 +153,29 @@ ou
 
 Warning tensorflow 2.0.2 require CUDA 11.0 dependency
 
-## IV/ MISE EN PLACE DE l ENVIRONNEMENT CONDA pytorch-env 
+### B/ CPP LibTensorFlow Environnement 
 
-- Fichier pytorch-env.yml :
+- From precompiled binary
+
+```bash
+wget https://storage.googleapis.com/tensorflow/libtensorflow/libtensorflow-cpu-linux-x86_64-2.4.0.tar.gz
+wget https://storage.googleapis.com/tensorflow/libtensorflow/libtensorflow-gpu-linux-x86_64-2.4.0.tar.gz
+
+ ```
+- From sources
+
+```bash
+git clone https://github.com/tensorflow/tensorflow.git
+cd tensorflow
+./configure
+bazel test --config opt //tensorflow/tools/lib_package:libtensorflow_test
+bazel build --config opt //tensorflow/tools/lib_package:libtensorflow
+```
+## IV/ PyTorch ENVIRONMENT SetUP 
+
+### A/ Environnement Conda
+
+- pytorch-env.yml file :
  
  ```bash
  name: pytorch-env
@@ -170,19 +192,37 @@ dependencies:
 - pytorch
  ```
  
- - Fichier myproject-env-requirement.txt
+ - pytorch-env-requirement.txt file
  ```bash
-tensorflow==2.0.0-alpha0
- pytoto==0.2.1
- pytata==6.0.2
+efficientnet_pytorch
  ```
-- Creation d un environnement conda avec les commandes suivantes
+- Conda environment creation :
  ```bash
- conda env create -f tensorflow-env.yml
- pip install -r myproject-env-requirement.txt
+ conda env create -f pytorch-env.yml
+ pip install -r pytorch-env-requirement.txt
  ```
 
-- Activation de l'environnement :
+- Environment activation :
 ```bash
-conda activate tensorflow-env
+conda activate pytorch-env
+```
+
+### B/ Environment CPP LibTorch
+
+- From precompiled binary
+
+```bash
+wget https://download.pytorch.org/libtorch/nightly/cpu/libtorch-shared-with-deps-latest.zip
+```
+- From sources (https://github.com/pytorch/pytorch/blob/master/docs/libtorch.rst)
+
+```bash
+module load GCC/7.3.0-2.30
+module load CUDA/10.0.130
+module load CMake/3.16.2
+git clone -b master --recurse-submodule https://github.com/pytorch/pytorch.git
+mkdir build
+cd build
+cmake -DBUILD_SHARED_LIBS:BOOL=ON -DCMAKE_BUILD_TYPE:STRING=Release -DPYTHON_EXECUTABLE:PATH=`which python3` -DCMAKE_INSTALL_PREFIX:PATH=../pytorch-install ../pytorch
+cmake --build . --target install
 ```

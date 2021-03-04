@@ -13,9 +13,9 @@ endif()
 
 
 if(NOT TENSORFLOW_FOUND)
-   # pour limiter le mode verbose
-  #set(TENSORFLOW_FIND_QUIETLY ON)
-  #find_package(Tensorflow)
+  # pour limiter le mode verbose
+  set(TENSORFLOW_FIND_QUIETLY ON)
+  find_package(Tensorflow)
 endif()
 
 if(NOT TENSORFLOW_FOUND)
@@ -37,16 +37,17 @@ if(NOT TENSORFLOW_FOUND)
   mark_as_advanced(TENSORFLOW_INCLUDE_DIR)
 
 endif()
+
 # pour limiter le mode verbose
 set(TENSORFLOW_FIND_QUIETLY ON)
 
-#find_package_handle_standard_args(TENSORFLOW 
-#        DEFAULT_MSG 
-#        TENSORFLOW_INCLUDE_DIR 
-#        TENSORFLOW_LIBRARY)
+find_package_handle_standard_args(TENSORFLOW
+        DEFAULT_MSG
+        TENSORFLOW_INCLUDE_DIR
+        TENSORFLOW_LIBRARY)
 
 
-#if(TENSORFLOW_FOUND)
+if(TENSORFLOW_FOUND)
   
 
   if(NOT TARGET tensorflow)
@@ -63,4 +64,4 @@ set(TENSORFLOW_FIND_QUIETLY ON)
 
   endif()
 
-#endif()
+endif()
