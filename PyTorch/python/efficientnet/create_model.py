@@ -22,7 +22,8 @@ def export_gpu(model, example):
     # Save traced model
     traced_script_module.save("efficientnet_model_gpu.pth")
 
-model = EfficientNet.from_name('efficientnet-b0')
+model = EfficientNet.from_pretrained('efficientnet-b0')
+model.set_swish(False)
 model.eval()
 
 # An example input you would normally provide to your model's forward() method.

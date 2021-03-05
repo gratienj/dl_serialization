@@ -34,3 +34,7 @@ export_cpu(model, example)
 
 if torch.cuda.is_available():
     export_gpu(model, example)
+
+
+smodel = torch.jit.script(model)
+smodel.save("script_resnet_model.pt")
