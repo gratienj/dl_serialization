@@ -20,14 +20,14 @@ endif()
 
 if(NOT TORCH_FOUND)
 
-  find_library(TORCH_LIBRARIES
+  find_library(TORCH_LIBRARY
                NAMES torch
                HINTS ${TORCH_ROOT}
                PATH_SUFFIXES lib lib64
                ${_TORCH_SEARCH_OPTS}
     )
 
-  mark_as_advanced(TORCH_LIBRARIES)
+  mark_as_advanced(TORCH_LIBRARY)
 
 
   find_path(TORCH_INCLUDE_DIR torch/script.h
@@ -49,14 +49,11 @@ endif()
 set(TORCH_FIND_QUIETLY ON)
 
 
-#find_package_handle_standard_args(Torch
-#        DEFAULT_MSG
-#        Torch_FOUND
-#        TORCH_INCLUDE_DIRS
-#        TORCH_LIBRARIES)
-#if(TORCH_LIBRARIES)
-#  set(TORCH_FOUND True)
-#endif()
+find_package_handle_standard_args(TORCH
+        DEFAULT_MSG
+        TORCH_INCLUDE_DIR
+        TORCH_LIBRARY)
+
 if(TORCH_FOUND)
   if(NOT TARGET torch)
 

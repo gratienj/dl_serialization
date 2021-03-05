@@ -28,5 +28,5 @@ add_subdirectory(src)
 
 enable_testing()
 
-add_test(NAME "LoadModel" COMMAND test_loadmodel.exe)
-add_test(NAME "ResNet" COMMAND test_resnet.exe ../../../data/image.jpg ../../../model/model/resnet/resnet_model_cpu.pth false)
+add_test(NAME "LoadModel" COMMAND test_loadmodel.exe ${CMAKE_HOME_DIRECTORY}/../../model/resnet/resnet_model_cpu.pth)
+add_test(NAME "ResNet" COMMAND test_resnet.exe ${CMAKE_HOME_DIRECTORY}/../../data/my_dog.jpg ${CMAKE_HOME_DIRECTORY}/../../model/resnet/resnet_model_cpu.pth ${CMAKE_HOME_DIRECTORY}/../../data/labels.txt false)

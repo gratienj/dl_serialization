@@ -158,6 +158,7 @@ std::tuple<std::string, std::string> postprocess(std::vector<float> probs,
   auto label_idx = std::distance(probs.begin(), prob);
   auto label = labels[label_idx];
   float prob_float = *prob;
+  std::cout<<"PostProcess : "<<label_idx<<" "<<label<<" "<<prob_float<<std::endl ;
 
   return std::make_tuple(label, std::to_string(prob_float));
 }
