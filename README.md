@@ -211,6 +211,10 @@ conda activate pytorch-env
 
 - From precompiled binary
 
+Remarck : GLIBCXX incompatibility version problem for LibTorch V1.7.1 with CentOS 7 IFPEN installation
+
+Solution : I have recompiled from sources LibTorch version 1.7.1
+
 ```bash
 wget https://download.pytorch.org/libtorch/nightly/cpu/libtorch-shared-with-deps-latest.zip
 ```
