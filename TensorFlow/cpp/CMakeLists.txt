@@ -22,10 +22,17 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 include(cmake/FindTensorFlow.cmake)
+#include(cmake/FindBoost.cmake)
+FIND_PATH(BOOST_INCLUDE_DIR boost)
+add_library(boost INTERFACE IMPORTED)
+set_target_properties(boost PROPERTIES 
+    INTERFACE_INCLUDE_DIRECTORIES "${BOOST_INCLUDE_DIR}")
+
 
 add_subdirectory(src)
 
 enable_testing()
 
 add_test(NAME "TestCAPI"    COMMAND test_capi.exe)
-add_test(NAME "TestCPPFlow" COMMAND test_cppflow.exe)
+add_test(NAME "TestCPPFlow"
+         COMMAND test_cppflow.exe ${CMAKE_HOME_DIRECTORY}/../../data/my_cat.jpg ${CMAKE_HOME_DIRECTORY}/../../model/efficientnet/model ${CMAKE_HOME_DIRECTORY}/../../data/imagenet_class_index.json)

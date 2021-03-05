@@ -1,5 +1,6 @@
 import tensorflow as tf
 
+#model = tf.keras.applications.EfficientNetB0(weights="imagenet")
 model = tf.keras.applications.EfficientNetB0()
 
 # Export the model to a SavedModel
