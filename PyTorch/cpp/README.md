@@ -5,6 +5,7 @@
 ```bash
 source eb.env
 module load GCC/7.3.0-2.30
+module load Boost/1.69.0
 module load CUDA/10.0.130
 module load OpenCV/4.0.1
 module load CMake/3.16.2

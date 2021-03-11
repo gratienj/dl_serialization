@@ -223,7 +223,7 @@ torch-geometric
 conda activate pytorch-env
 ```
 
-### B/ Environment CPP LibTorch
+### B/ Environment CPP LibTorch (libtorch C++ API and torch-sparse torch-scatter C++ extension for GNN)
 
 - From precompiled binary
 
@@ -243,6 +243,19 @@ module load CMake/3.16.2
 git clone -b master --recurse-submodule https://github.com/pytorch/pytorch.git
 mkdir build
 cd build
+cmake -DBUILD_SHARED_LIBS:BOOL=ON -DCMAKE_BUILD_TYPE:STRING=Release -DPYTHON_EXECUTABLE:PATH=`which python3` -DCMAKE_INSTALL_PREFIX:PATH=../pytorch-install ../pytorch
+cmake --build . --target install
+
+
+git clone https://github.com/rusty1s/pytorch_sparse.git
+mkdir build_torch_sparse
+cd build_torch_sparse
+cmake -DBUILD_SHARED_LIBS:BOOL=ON -DCMAKE_BUILD_TYPE:STRING=Release -DPYTHON_EXECUTABLE:PATH=`which python3` -DCMAKE_INSTALL_PREFIX:PATH=../pytorch-install ../pytorch
+cmake --build . --target install
+
+git clone https://github.com/rusty1s/pytorch_scatter.git
+mkdir build_torch_scatter
+cd build_torch_scatter
 cmake -DBUILD_SHARED_LIBS:BOOL=ON -DCMAKE_BUILD_TYPE:STRING=Release -DPYTHON_EXECUTABLE:PATH=`which python3` -DCMAKE_INSTALL_PREFIX:PATH=../pytorch-install ../pytorch
 cmake --build . --target install
 ```
