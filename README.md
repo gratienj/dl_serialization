@@ -195,11 +195,27 @@ dependencies:
  - pytorch-env-requirement.txt file
  ```bash
 efficientnet_pytorch
+torch-scatter==latest+cu102
+torch-sparse==latest+cu102
+torch-cluster==latest+cu102
+torch-spline-conv==latest+cu102
+torch-geometric
  ```
 - Conda environment creation :
  ```bash
- conda env create -f pytorch-env.yml
- pip install -r pytorch-env-requirement.txt
+ $ conda env create -f pytorch-env.yml
+ # get torch version
+ $ python -c "import torch; print(torch.__version__)"
+ >>> 1.7.0
+ #get cuda version
+ $ python -c "import torch; print(torch.version.cuda)"
+ >>> 10.2
+ $ pip install -r pytorch-env-requirement.txt
+ $ pip install torch-scatter==latest+cu102 -f https://pytorch-geometric.com/whl/torch-1.7.0.html
+ $ pip install torch-sparse==latest+cu102 -f https://pytorch-geometric.com/whl/torch-1.7.0.html
+ $ pip install torch-cluster==latest+cu102 -f https://pytorch-geometric.com/whl/torch-1.7.0.html
+ $ pip install torch-spline-conv==latest+cu102 -f https://pytorch-geometric.com/whl/torch-1.7.0.html
+ $ pip install torch-geometric
  ```
 
 - Environment activation :
