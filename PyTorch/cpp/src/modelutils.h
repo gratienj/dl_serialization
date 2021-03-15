@@ -25,11 +25,11 @@ template<typename ValueT>
 std::ostream& operator<<(std::ostream& oss,PredictionT<ValueT> const& prediction)
 {
   oss<<"Prediction : dim("<<prediction.m_dim0<<","<<prediction.m_dim1<<")"<<std::endl ;
-  oss<<"\t["<<std::endl ;
+  oss<<"["<<std::endl ;
   int k = 0 ;
   for(int i=0;i<prediction.m_dim0;++i)
   {
-      oss<<"[";
+      oss<<"\t[";
       for(int j=0;j<prediction.m_dim1;++j)
          oss<<prediction.m_values[k++]<<" ";
       oss<<"]"<<std::endl ;
@@ -43,4 +43,5 @@ std::vector<PredictionT<PTGraph::value_type>>
 infer(torch::jit::script::Module model,
       std::vector<PTGraph>& graphs,
       bool usegpu,
-      int opt) ;
+      int nb_args,
+      int batch_size) ;

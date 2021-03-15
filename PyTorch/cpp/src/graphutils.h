@@ -23,6 +23,7 @@ public :
   std::size_t             m_nb_vertex_attr = 0 ;
   std::size_t             m_nb_edge_attr   = 0 ;
   std::size_t             m_y_size         = 0 ;
+  std::vector<int64_t>    m_batch ;
   std::vector<value_type> m_x ;
   std::vector<index_type> m_edge_index ;
   std::vector<value_type> m_edge_attr ;
@@ -56,3 +57,11 @@ std::ostream& operator <<(std::ostream& ostream,const PTGraph& graph) ;
 
 void convertGraph2PTGraph(Graph& graph, PTGraph& pt_graph) ;
 
+
+void convertGraph2PTGraph(Graph& graph, PTGraph& pt_graph) ;
+
+void convertGraph2PTGraph(std::vector<Graph>& batch, PTGraph& pt_graph) ;
+
+void assignPTGraphToOnes(PTGraph& pt_graph, int64_t dim0, int64_t dim1) ;
+
+void assignPTGraphToRandn(PTGraph& pt_graph, int64_t dim0, int64_t dim1) ;

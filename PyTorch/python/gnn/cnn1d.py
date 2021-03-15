@@ -3,29 +3,20 @@
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
-from torch.nn import Linear, Sequential, Dropout, ReLU
-from torch_geometric.nn import SplineConv, TopKPooling, global_mean_pool, DataParallel, BatchNorm, ChebConv, SAGEConv
-from torch_geometric.nn import GCNConv
+from torch.nn import Linear, Sequential, Dropout, ReLU, Conv1d
 
 from typing import Optional, Union, Tuple, List
-from torch_geometric.typing import OptPairTensor, Adj, OptTensor, Size
 from torch import Tensor, LongTensor
-from torch_sparse.tensor import SparseTensor
-from torch_geometric.data import Data
 
 torch.set_default_tensor_type('torch.DoubleTensor')
 
 class Net(torch.nn.Module):
     def __init__(self, in_channels, out_channels):
         super(Net, self).__init__()
-        self.conv1 = GCNConv(in_channels, 64).jittable()
-        self.conv2 = GCNConv(64, out_channels).jittable()
+        self.conv1 = Conv1d(in_channels,out_channels,3)
 
-    def forward(self, x, edge_index):
-        x = self.conv1(x, edge_index)
-        x = F.relu(x)
-        x = self.conv2(x, edge_index)
-        return F.log_softmax(x, dim=1)
+    def forward(self, x):
+        return self.conv1(x)
 
 
     def save(self, dir_name, model_name):
@@ -59,14 +50,14 @@ if __name__ == "__main__":
     parser.add_argument("--data_id",   type=int, default=0,            help="InputData query")
     parser.add_argument("--data_dir_path",  type=str, default="./data",         help="dir path")
     parser.add_argument("--dir_path",  type=str, default="./",         help="dir path")
-    parser.add_argument("--model_name",type=str, default="gnn0_model", help="model name")
+    parser.add_argument("--model_name",type=str, default="cnn1d_model", help="model name")
     parser.add_argument("--device",    type=str, default="cpu",        help="Device query")
     args = parser.parse_args()
     test_id = args.test_id
     data_id = args.data_id
 
     device = torch.device(args.device)
-    model = Net(13,3).double()
+    model = Net(1,3).double()
     if test_id == 0:
         # Evaluation mode
         model.to(device)
@@ -78,21 +69,14 @@ if __name__ == "__main__":
 
     if test_id == 1:
         # Load model
-        model.to(device)
+
+        input = torch.randn(1, 1, 3)
+        input = input.to(torch.device(args.device))
+
+        model = model.to(torch.device(args.device))
         model.eval()
 
-        # load graphs and reshape it in torch format
-        dataset = VOFDataSet(root=args.data_dir_path, num_file=3000, transform=T.Cartesian())
-        test_data = dataset.test()
-        print("NB SAMPLES",len(test_data))
-        #data = test_data.get(data_id)
-
-        data_loader = DataLoader(dataset=test_data, batch_size=1)
-        i,data = next(enumerate(data_loader))
-        data.to(device)
-        print('DATA ',data)
-
-        out = model(x=data.x,edge_index=data.edge_index)
+        out = model(x=input)
         print('OUT',out)
 
         smodel = torch.jit.script(model)
@@ -100,11 +84,3 @@ if __name__ == "__main__":
         save_path=os.path.join(args.dir_path, script_model_name)
         smodel.save(save_path)
 
-    if test_id == 2:
-        # Load model
-        load_model_name = "{}.pt".format(args.model_name)
-        load_path = os.path.join(args.dir_path, load_model_name)
-        print("Load Model : ", load_path)
-        model.load(load_path)
-        model.to(device)
-        model.eval()

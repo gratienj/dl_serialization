@@ -133,6 +133,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='GNNNet test functions')
     parser.add_argument("--test_id",   type=int, default=0,    help="Input query")
+    parser.add_argument("--data_dir",   type=str, default='./data',    help="Input query")
     args = parser.parse_args()
     test_id = args.test_id
 
@@ -146,7 +147,7 @@ if __name__ == "__main__":
     print(path)
 
     # load graphs and reshape it in torch format
-    dataset = VOFDataSet(root='../../../DATA', num_file=3000, transform=T.Cartesian())
+    dataset = VOFDataSet(root=args.data_dir, num_file=3000, transform=T.Cartesian())
     test_data = dataset.test()
     print("NB SAMPLES",len(test_data))
     print("TEST ID : ",test_id)
@@ -157,6 +158,9 @@ if __name__ == "__main__":
         if i==test_id:
             data = d
     print("DATA",data)
+    print("BATCH:",data.batch)
+    print("X         :",data.x)
+    print("EDGE INDEX:",data.edge_index)
     graph_dict = { 'x' : data.x.detach().cpu().numpy().tolist(),
                    'edge_index' : data.edge_index.detach().cpu().numpy().tolist(),
                    'y' : data.y.detach().cpu().numpy().tolist()

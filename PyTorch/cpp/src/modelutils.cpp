@@ -4,24 +4,34 @@
 
 // Predict
 
-torch::Tensor __predict_basic(torch::jit::script::Module model, PTGraph const& graph) {
+torch::Tensor __predict_basic(torch::jit::script::Module model, PTGraph& graph, int nb_args,torch::Device device)
+{
 
   std::vector<torch::jit::IValue> inputs;
-  inputs.push_back(graph.m_x);
-  inputs.push_back(graph.m_edge_index);
+  if(nb_args>0)
+  {
+    graph.m_x = graph.m_x.to(device) ;
+    inputs.push_back(graph.m_x);
+  }
+  if(nb_args>1)
+  {
+    graph.m_edge_index = graph.m_edge_index.to(device) ;
+    inputs.push_back(graph.m_edge_index);
+  }
+  if(nb_args>2)
+  {
+    graph.m_edge_attr = graph.m_edge_attr.to(device) ;
+    inputs.push_back(graph.m_edge_attr);
+  }
 
   // Execute the model and turn its output into a tensor.
   torch::NoGradGuard no_grad;
+  model.to(device) ;
   torch::Tensor output = model.forward(inputs).toTensor();
-
-  torch::DeviceType cpu_device_type = torch::kCPU;
-  torch::Device cpu_device(cpu_device_type);
-  output = output.to(cpu_device);
-
   return output;
 }
 
-torch::Tensor __predict(torch::jit::script::Module model, PTGraph const& graph) {
+torch::Tensor __predict(torch::jit::script::Module model, PTGraph& graph) {
 
   std::vector<torch::jit::IValue> inputs;
   inputs.push_back(graph.m_batch) ;
@@ -32,10 +42,6 @@ torch::Tensor __predict(torch::jit::script::Module model, PTGraph const& graph) 
   // Execute the model and turn its output into a tensor.
   torch::NoGradGuard no_grad;
   torch::Tensor output = model.forward(inputs).toTensor();
-
-  torch::DeviceType cpu_device_type = torch::kCPU;
-  torch::Device cpu_device(cpu_device_type);
-  output = output.to(cpu_device);
 
   return output;
 }
@@ -62,19 +68,19 @@ torch::jit::script::Module read_model(std::string model_path, bool usegpu) {
 
 // 2. Forward
 std::vector<PredictionT<PTGraph::value_type> >
-forward_basic(std::vector<PTGraph>& graphs,
-              torch::jit::script::Module model)
+basic_forward(std::vector<PTGraph>& graphs,
+              torch::jit::script::Module model,
+              int nb_args,
+              bool use_gpu)
 {
   std::vector<PredictionT<PTGraph::value_type>> predictions ;
   torch::DeviceType cpu_device_type = torch::kCPU;
   torch::Device cpu_device(cpu_device_type);
+  torch::DeviceType device_type = use_gpu ? torch::kCUDA : torch::kCPU;
+  torch::Device device(device_type);
   for(auto& g : graphs)
   {
-    g.m_x.to(cpu_device) ;
-    g.m_edge_index.to(cpu_device) ;
-    std::cout<<"TRY PREDICT"<<std::endl ;
-    torch::Tensor output = __predict_basic(model, g);
-
+    torch::Tensor output = __predict_basic(model, g,nb_args,device);
     output = output.to(cpu_device);
 
     int ndim = output.ndimension();
@@ -99,7 +105,8 @@ forward_basic(std::vector<PTGraph>& graphs,
 std::vector<PredictionT<PTGraph::value_type> >
 forward(std::vector<PTGraph>& graphs,
         torch::jit::script::Module model,
-        bool usegpu)
+        bool usegpu,
+        int batch_size)
 {
   std::vector<PredictionT<PTGraph::value_type>> predictions ;
 
@@ -109,10 +116,10 @@ forward(std::vector<PTGraph>& graphs,
       torch::Device gpu_device(gpu_device_type);
       for(auto& g : graphs)
       {
-        g.m_batch.to(gpu_device) ;
-        g.m_x.to(gpu_device) ;
-        g.m_edge_index.to(gpu_device) ;
-        g.m_edge_attr.to(gpu_device) ;
+        g.m_batch = g.m_batch.to(gpu_device) ;
+        g.m_x = g.m_x.to(gpu_device) ;
+        g.m_edge_index = g.m_edge_index.to(gpu_device) ;
+        g.m_edge_attr = g.m_edge_attr.to(gpu_device) ;
         torch::Tensor output = __predict(model, g);
 
 
@@ -140,10 +147,6 @@ forward(std::vector<PTGraph>& graphs,
       torch::Device cpu_device(cpu_device_type);
       for(auto& g : graphs)
       {
-        g.m_batch.to(cpu_device) ;
-        g.m_x.to(cpu_device) ;
-        g.m_edge_index.to(cpu_device) ;
-        g.m_edge_attr.to(cpu_device) ;
         torch::Tensor output = __predict(model, g);
 
         output = output.to(cpu_device);
@@ -164,16 +167,11 @@ forward(std::vector<PTGraph>& graphs,
 }
 
 std::vector<PredictionT<PTGraph::value_type> >
-infer(torch::jit::script::Module model, std::vector<PTGraph>& graphs,bool usegpu,int opt)
+infer(torch::jit::script::Module model, std::vector<PTGraph>& graphs,bool usegpu,int nb_args,int batch_size)
 {
     // Forward
-    switch(opt)
-    {
-    case 1 :
-         return forward(graphs, model, usegpu);
-    case 2 :
-         return forward_basic(graphs, model);
-    default :
-         return forward(graphs, model, usegpu);
-    }
+    if(nb_args==0)
+      return forward(graphs, model, usegpu,batch_size);
+    else
+      return basic_forward(graphs, model, nb_args, usegpu);
 }

@@ -16,6 +16,11 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 
+#include <boost/program_options/options_description.hpp>
+#include <boost/program_options/parsers.hpp>
+#include <boost/program_options/cmdline.hpp>
+#include <boost/program_options/variables_map.hpp>
+
 #include "torchutils.h"
 #include "opencvutils.h"
 
@@ -54,24 +59,33 @@ infer(
   return std::make_tuple(pred, prob);
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char **argv)
+{
 
-  if (argc != 5) {
-    std::cerr << "usage: predict <path-to-image> <path-to-exported-script-module> <path-to-labels-file> <gpu-flag{true/false}> \n";
-    return -1;
+  namespace po = boost::program_options;
+
+  // Declare the supported options.
+  po::options_description desc("Allowed options");
+  desc.add_options()
+    ("help", "produce help message")
+    ("use-gpu",     po::value<int>()->default_value(0), "use gpu option")
+    ("image-file",  po::value<std::string>(),           "image file path")
+    ("model-file",  po::value<std::string>(),           "model file path")
+    ("labels-file", po::value<std::string>(),           "labels file path") ;
+
+  po::variables_map vm;
+  po::store(po::parse_command_line(argc, argv, desc), vm);
+  po::notify(vm);
+
+  if (vm.count("help")) {
+        std::cout << desc << "\n";
+        return 1;
   }
 
-  std::string image_path = argv[1];
-  std::string model_path = argv[2];
-  std::string labels_path = argv[3];
-  std::string usegpu_str = argv[4];
-  bool usegpu;
-
-  if (usegpu_str == "true") {
-      usegpu = true;
-  } else {
-      usegpu = false;
-  }
+  std::string image_path  = vm["image-file"].as<std::string>();
+  std::string model_path  = vm["model-file"].as<std::string>();
+  std::string labels_path = vm["labels-file"].as<std::string>();
+  bool usegpu             = vm["use-gpu"].as<int>() == 1 ;
 
   int image_height = 224;
   int image_width = 224;

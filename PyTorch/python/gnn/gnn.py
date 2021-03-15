@@ -105,10 +105,13 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description='GNNNet test functions')
-    parser.add_argument("--test_id",   type=int, default=0,              help="Test query")
-    parser.add_argument("--data_id",   type=int, default=0,              help="Data query")
-    parser.add_argument("--dir_path",  type=str, default="./",           help="dir path")
-    parser.add_argument("--model_name",type=str, default="gnn1_model",    help="model name")
+    parser.add_argument("--test_id",       type=int, default=0,              help="Test query")
+    parser.add_argument("--data_id",       type=int, default=0,              help="Data query")
+    parser.add_argument("--batch_size",    type=int, default=1,              help="Batch size query")
+    parser.add_argument("--data_dir_path", type=str, default="./data",       help="data dir path")
+    parser.add_argument("--dir_path",      type=str, default="./",           help="dir path")
+    parser.add_argument("--model_name",    type=str, default="gnn1_model",   help="model name")
+    parser.add_argument("--device",        type=str, default="cpu",          help="device cpu, cuda")
     args = parser.parse_args()
     test_id = args.test_id
     data_id = args.data_id
@@ -139,23 +142,28 @@ if __name__ == "__main__":
 
     if test_id == 2:
         # Load model
-        device = torch.device('cpu')
+        device = torch.device(args.device)
         model.to(device)
         model.eval()
 
         # load graphs and reshape it in torch format
-        dataset = VOFDataSet(root='../../../DATA', num_file=3000, transform=T.Cartesian())
+        dataset = VOFDataSet(root=args.data_dir_path, num_file=3000, transform=T.Cartesian())
         test_data = dataset.test()
         print("NB SAMPLES",len(test_data))
         print("DATA ID : ",data_id)
         #data = test_data.get(data_id)
         #print('DATA ',data)
 
-        data_loader = DataLoader(dataset=test_data, batch_size=1)
+        data_loader = DataLoader(dataset=test_data, batch_size=args.batch_size)
         for i,d in enumerate(data_loader):
             if i==data_id:
                 data = d
-        print("DATA:",data)
+        print("      DATA :",data)
+        print("     BATCH :",data.batch)
+        print("         X :",data.x)
+        print("EDEGE INDEX:",data.edge_index)
+        print("  EDGE ATTR:",data.edge_attr)
+        data.to(device)
         #out = model(x=data.x,edge_index=data.edge_index )
         #out = model(batch=data.batch,x=data.x,edge_index=data.edge_index )
         out = model(batch=data.batch,x=data.x,edge_index=data.edge_index,pseudo=data.edge_attr )
@@ -179,17 +187,19 @@ if __name__ == "__main__":
         model.eval()
 
         # load graphs and reshape it in torch format
-        dataset = VOFDataSet(root='../../../DATA', num_file=3000, transform=T.Cartesian())
+        dataset = VOFDataSet(root=args.data_dir_path, num_file=3000, transform=T.Cartesian())
         test_data = dataset.test()
         print("NB SAMPLES",len(test_data))
         print("DATA ID : ",data_id)
 
-        data_loader = DataLoader(dataset=test_data, batch_size=1)
+        data_loader = DataLoader(dataset=test_data, batch_size=args.batch_size)
         for i,d in enumerate(data_loader):
             if i==data_id:
                 data = d
         print("DATA:",data)
-        #print("BATCH:",data.batch)
+        print("BATCH:",data.batch)
+        print("X         :",data.x)
+        print("EDGE INDEX:",data.edge_index)
         out = model(batch=data.batch,x=data.x,edge_index=data.edge_index,pseudo=data.edge_attr)
         print('OUT',out)
 

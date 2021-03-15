@@ -250,12 +250,18 @@ cmake --build . --target install
 git clone https://github.com/rusty1s/pytorch_sparse.git
 mkdir build_torch_sparse
 cd build_torch_sparse
-cmake -DBUILD_SHARED_LIBS:BOOL=ON -DCMAKE_BUILD_TYPE:STRING=Release -DPYTHON_EXECUTABLE:PATH=`which python3` -DCMAKE_INSTALL_PREFIX:PATH=../pytorch-install ../pytorch
+cmake -DBUILD_SHARED_LIBS:BOOL=ON -DCMAKE_BUILD_TYPE:STRING=Release -DPYTHON_EXECUTABLE:PATH=`which python3` -DCMAKE_INSTALL_PREFIX:PATH=../pytorch-install ../pytorch_sparse
 cmake --build . --target install
 
 git clone https://github.com/rusty1s/pytorch_scatter.git
 mkdir build_torch_scatter
 cd build_torch_scatter
-cmake -DBUILD_SHARED_LIBS:BOOL=ON -DCMAKE_BUILD_TYPE:STRING=Release -DPYTHON_EXECUTABLE:PATH=`which python3` -DCMAKE_INSTALL_PREFIX:PATH=../pytorch-install ../pytorch
+cmake -DBUILD_SHARED_LIBS:BOOL=ON -DCMAKE_BUILD_TYPE:STRING=Release -DPYTHON_EXECUTABLE:PATH=`which python3` -DCMAKE_INSTALL_PREFIX:PATH=../pytorch-install ../pytorch_scatter
+cmake --build . --target install
+
+git clone https://github.com/rusty1s/pytorch_spline_conv.git
+mkdir build_torch_spline_conv
+cd build_torch_spline_conv
+cmake -DBUILD_SHARED_LIBS:BOOL=ON -DCMAKE_BUILD_TYPE:STRING=Release -DPYTHON_EXECUTABLE:PATH=`which python3` -DCMAKE_INSTALL_PREFIX:PATH=../pytorch-install ../pytorch_spline_conv
 cmake --build . --target install
 ```

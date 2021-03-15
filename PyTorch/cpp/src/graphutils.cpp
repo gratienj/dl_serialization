@@ -91,6 +91,14 @@ std::ostream& operator <<(std::ostream& ostream,const Graph& graph)
   ostream<<" NB EDGES : "<<graph.m_nb_edges<<std::endl ;
   ostream<<" NB EDGE ATTR : "<<graph.m_nb_edge_attr<<std::endl ;
   ostream<<" NB LABELS : "<<graph.m_y_size<<std::endl ;
+  if(graph.m_batch.size()>0)
+  {
+    ostream<<"BATCH:"<<std::endl ;
+    ostream<<"["<<std::endl ;
+    for(int v=0;v<graph.m_nb_vertices;++v)
+      ostream<<graph.m_batch[v]<<" ";
+    ostream<<"]"<<std::endl ;
+  }
   ostream<<"X:"<<std::endl ;
   {
       int icount = 0 ;
@@ -157,6 +165,8 @@ std::ostream& operator <<(std::ostream& ostream,const PTGraph& graph)
   ostream<<graph.m_x<<std::endl ;
   ostream<<"EDGE:"<<std::endl ;
   ostream<<graph.m_edge_index<<std::endl ;
+  ostream<<"EDGE ATTR:"<<std::endl ;
+  ostream<<graph.m_edge_attr<<std::endl ;
   ostream<<"Y:"<<std::endl ;
   ostream<<graph.m_y<<std::endl ;
 }
@@ -187,5 +197,105 @@ void convertGraph2PTGraph(Graph& graph, PTGraph& pt_graph)
        torch::TensorOptions options(torch::kFloat64);
        pt_graph.m_y = torch::from_blob(graph.m_y.data(), torch::IntList(dims), options).clone();
    }
+}
+
+
+void convertGraph2PTGraph(std::vector<Graph>& graph_batch, PTGraph& pt_graph)
+{
+   std::cout<<"CONVERT BATCH TO PTGRAPH : "<<graph_batch.size()<<std::endl ;
+   std::vector<int64_t>           batch;
+   std::vector<Graph::value_type> x ;
+   std::vector<int64_t>           edge_index;
+   std::vector<Graph::value_type> edge_attr ;
+   std::vector<Graph::value_type> y ;
+   std::size_t batch_size        = graph_batch.size() ;
+   std::size_t nb_total_vertices = 0 ;
+   std::size_t nb_total_edges    = 0 ;
+   std::size_t nb_vertex_attr    = graph_batch[0].m_nb_vertex_attr ;
+   std::size_t nb_edge_attr      = graph_batch[0].m_nb_edge_attr ;
+   std::size_t y_size            = graph_batch[0].m_y_size ;
+   for(auto const& g : graph_batch)
+   {
+       nb_total_vertices += g.m_nb_vertices ;
+       nb_total_edges += g.m_nb_edges ;
+       assert(g.m_nb_vertex_attr == nb_vertex_attr) ;
+       assert(g.m_nb_edge_attr == nb_edge_attr) ;
+   }
+   batch.resize(nb_total_vertices) ;
+   x.reserve(nb_total_vertices*nb_vertex_attr) ;
+   edge_index.resize(2*nb_total_edges) ;
+   edge_attr.reserve(nb_total_edges*nb_edge_attr) ;
+   y.reserve(batch_size*y_size) ;
+   int i = 0 ;
+   int vertex_offset = 0 ;
+   int edge_offset = 0 ;
+   for(auto const& g : graph_batch)
+   {
+        for(int j=0;j<g.m_nb_vertices;++j)
+           batch[vertex_offset+j] = i ;
+
+        for(auto v : g.m_x)
+        {
+            x.push_back(v) ;
+        }
+        for(int j=0;j<g.m_nb_edges;++j)
+        {
+            edge_index[edge_offset+j] = vertex_offset+ g.m_edge_index[j] ;
+            edge_index[nb_total_edges+edge_offset+j] = vertex_offset+ g.m_edge_index[g.m_nb_edges+j] ;
+        }
+        for(auto v : g.m_edge_attr)
+        {
+            edge_attr.push_back(v) ;
+        }
+        for(auto v : g.m_y)
+        {
+            y.push_back(v) ;
+        }
+        ++i ;
+        vertex_offset += g.m_nb_vertices ;
+        edge_offset   += g.m_nb_edges ;
+   }
+   {
+       std::vector<int64_t> dims = { nb_total_vertices } ;
+       torch::TensorOptions options(torch::kInt64);
+       pt_graph.m_batch = torch::from_blob(batch.data(), torch::IntList(dims), options).clone() ;
+   }
+   {
+       std::vector<int64_t> dims = { nb_total_vertices, nb_vertex_attr};
+       torch::TensorOptions options(torch::kFloat64);
+       pt_graph.m_x = torch::from_blob(x.data(), torch::IntList(dims), options).clone();
+   }
+   {
+       std::vector<int64_t> dims = { 2, nb_total_edges};
+       torch::TensorOptions options(torch::kInt64);
+       pt_graph.m_edge_index = torch::from_blob(edge_index.data(), torch::IntList(dims), options).clone();
+   }
+   {
+       std::vector<int64_t> dims = { nb_total_edges, nb_edge_attr};
+       torch::TensorOptions options(torch::kFloat64);
+       pt_graph.m_edge_attr = torch::from_blob(edge_attr.data(), torch::IntList(dims), options).clone();
+   }
+   {
+       std::vector<int64_t> dims = { batch_size, y_size};
+       torch::TensorOptions options(torch::kFloat64);
+       pt_graph.m_y = torch::from_blob(y.data(), torch::IntList(dims), options).clone();
+   }
+   Graph graph = {nb_total_vertices, nb_total_edges, nb_vertex_attr, nb_edge_attr, y_size, batch, x, edge_index, edge_attr, y } ;
+   std::cout<< graph;
+}
+
+void assignPTGraphToOnes(PTGraph& pt_graph, int64_t dim0, int64_t dim1)
+{
+   std::vector<int64_t> dims = {dim0, dim1};
+   torch::TensorOptions options(torch::kFloat64);
+   pt_graph.m_x = torch::ones(dims,options).clone() ;
+}
+
+
+void assignPTGraphToRandn(PTGraph& pt_graph, int64_t dim0, int64_t dim1)
+{
+   std::vector<int64_t> dims = {1, dim0, dim1};
+   torch::TensorOptions options(torch::kFloat64);
+   pt_graph.m_x = torch::randn(dims,options).clone() ;
 }
 
