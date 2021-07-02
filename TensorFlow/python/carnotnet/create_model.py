@@ -62,7 +62,14 @@ class PSwish(keras.layers.Layer):
 
 
 if __name__ == "__main__":
-    prj_path = Path.cwd().parents[2]
+    cwd = Path.cwd()
+    prj_path = None
+    if str(cwd).endswith("dl_serialization"):
+        prj_path = cwd
+    else:
+        for parent in cwd.parents:
+            if str(parent).endswith("dl_serialization"):
+                prj_path = parent
     data_path = prj_path.joinpath("data", "carnotnet", "data.npy")
     # Load data which has 100 rows and 6 columns
     # The data are the results of flash caluclations for the mixture of water and methane
