@@ -186,10 +186,10 @@ dependencies:
 - python=3.6
 - multiprocess
 - matplotlib
-- cudatoolkit=10.0
 - numpy
 - scipy
-- pytorch
+- cudatoolkit=10.2
+- pytorch=1.6.0
  ```
  
  - pytorch-env-requirement.txt file
