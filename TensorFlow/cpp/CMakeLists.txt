@@ -22,11 +22,11 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 include(cmake/FindTensorFlow.cmake)
-#include(cmake/FindBoost.cmake)
-FIND_PATH(BOOST_INCLUDE_DIR boost)
-add_library(boost INTERFACE IMPORTED)
-set_target_properties(boost PROPERTIES 
-    INTERFACE_INCLUDE_DIRECTORIES "${BOOST_INCLUDE_DIR}")
+include(cmake/FindBoost.cmake)
+#FIND_PATH(BOOST_INCLUDE_DIR boost)
+#add_library(boost INTERFACE IMPORTED)
+#set_target_properties(boost PROPERTIES 
+#    INTERFACE_INCLUDE_DIRECTORIES "${BOOST_INCLUDE_DIR}")
 
 
 add_subdirectory(src)

@@ -47,7 +47,7 @@ set(Boost_CHRONO_DYN_LINK          ON)
 set(Boost_REGEX_DYN_LINK           ON)
 set(Boost_NO_BOOST_CMAKE           ON)
 
-find_package(Boost COMPONENTS regex program_options thread serialization chrono system QUIET)
+find_package(Boost COMPONENTS regex program_options thread serialization chrono system filesystem QUIET)
 
 # pour limiter le mode verbose
 set(BOOST_FIND_QUIETLY ON)
@@ -60,8 +60,9 @@ find_package_handle_standard_args(BOOST
 	Boost_THREAD_LIBRARY
 	Boost_SERIALIZATION_LIBRARY
 	Boost_CHRONO_LIBRARY
-  Boost_REGEX_LIBRARY
-	Boost_SYSTEM_LIBRARY)
+    Boost_REGEX_LIBRARY
+	Boost_SYSTEM_LIBRARY
+	Boost_FILESYSTEM_LIBRARY)
 
 if(BOOST_FOUND AND NOT TARGET boost)
   
@@ -72,7 +73,8 @@ if(BOOST_FOUND AND NOT TARGET boost)
                       ${Boost_SERIALIZATION_LIBRARY}
                       ${Boost_CHRONO_LIBRARY}
                       ${Boost_REGEX_LIBRARY}
-                      ${Boost_SYSTEM_LIBRARY})
+                      ${Boost_SYSTEM_LIBRARY}
+                      ${Boost_FILESYSTEM_LIBRARY})
   
   # boost program_options
   
@@ -208,7 +210,35 @@ if(BOOST_FOUND AND NOT TARGET boost)
 	
   set_property(TARGET boost_system APPEND PROPERTY
     INTERFACE_COMPILE_DEFINITIONS "BOOST_SYSTEM_DYN_LINK")
-  
+
+
+  # boost filesystem
+
+  add_library(boost_filesystem UNKNOWN IMPORTED)
+
+  set_target_properties(boost_filesystem PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${BOOST_INCLUDE_DIRS}")
+
+  set_property(TARGET boost_filesystem APPEND PROPERTY
+    IMPORTED_CONFIGURATIONS RELEASE)
+
+  set_target_properties(boost_filesystem PROPERTIES
+    IMPORTED_LINK_INTERFACE_LANGUAGES_RELEASE "CXX"
+    IMPORTED_LOCATION_RELEASE "${Boost_FILESYSTEM_LIBRARY_RELEASE}")
+
+  set_property(TARGET boost_filesystem APPEND PROPERTY
+    IMPORTED_CONFIGURATIONS DEBUG)
+
+  set_target_properties(boost_filesystem PROPERTIES
+    IMPORTED_LINK_INTERFACE_LANGUAGES_DEBUG "CXX"
+    IMPORTED_LOCATION_DEBUG "${Boost_FILESYSTEM_LIBRARY_DEBUG}")
+
+  set_target_properties(boost_filesystem PROPERTIES
+    INTERFACE_COMPILE_DEFINITIONS "BOOST_ALL_NO_LIB")
+
+  set_property(TARGET boost_filesystem APPEND PROPERTY
+    INTERFACE_COMPILE_DEFINITIONS "BOOST_SYSTEM_DYN_LINK")
+
   # boost serialization
   
   add_library(boost_serialization UNKNOWN IMPORTED)
@@ -251,6 +281,9 @@ if(BOOST_FOUND AND NOT TARGET boost)
 
   set_property(TARGET boost APPEND PROPERTY 
     INTERFACE_LINK_LIBRARIES "boost_system")
+
+  set_property(TARGET boost APPEND PROPERTY
+    INTERFACE_LINK_LIBRARIES "boost_filesystem")
 
   set_property(TARGET boost APPEND PROPERTY 
     INTERFACE_LINK_LIBRARIES "boost_serialization")

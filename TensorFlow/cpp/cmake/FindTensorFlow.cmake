@@ -15,7 +15,7 @@ endif()
 if(NOT TENSORFLOW_FOUND)
   # pour limiter le mode verbose
   set(TENSORFLOW_FIND_QUIETLY ON)
-  find_package(Tensorflow)
+  #find_package(Tensorflow)
 endif()
 
 if(NOT TENSORFLOW_FOUND)
