@@ -9,6 +9,7 @@ Structure:
 - Inferator/src: source code of Inferator
 - Inferator/env: environment files to use Inferator (_intel ones require VKM-CONVERGE zone access)
 - Inferator/test: makefile and simple cpp code for standalone testing (inputs data hardcoded)
+- Inferator/TensorFlow_comparison: source code, environment, makefile to duplicate standalone test case with TensorFlow instead of Inferator
 - model/wall_functions: models for test case (from E.Rondeaux PhD thesis) in 2 TensorFlow format (.pb and .h5)
 - data/wall_functions: .csv file with input data and expect results of test case
  

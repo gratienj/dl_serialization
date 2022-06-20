@@ -1,11 +1,11 @@
-#include "../src/inference.h"
+#include "TFcaller.h"
 #include <chrono>
 
 int main() {
     auto start = std::chrono::steady_clock::now();
     auto end = std::chrono::steady_clock::now();
     //
-    Inferator net("../../model/wall_functions/AIwall_function.h5");
+    TFcaller net("../../model/wall_functions/AI_wall_function_TF");
     //
     double* data = new double[12];
     double* result;
