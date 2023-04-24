@@ -1,0 +1,99 @@
+//
+// Created by kadik on 07/03/2022.
+//
+
+
+#include <iostream>
+#include <vector>
+#include <string>
+#include <memory>
+#include <ctime>
+#include <random>
+#include <chrono>
+#include <typeinfo>
+#include <list>
+
+
+// torch:
+#include <torch/torch.h>
+#include <torch/script.h>
+#include <ATen/Parallel.h>
+
+
+using namespace std;
+using namespace std::chrono;
+
+
+// vider cache:
+void micro_benchmark_clear_cache() {
+    std::vector<int> clear = std::vector<int>();
+    clear.resize(1000 * 1000 * 1000, 42);
+    for (size_t i = 0; i < clear.size(); i++) {
+        clear[i] += 1;
+    }
+    clear.resize(0);
+}
+
+
+
+int main(int argc, char* argv[]){
+
+    // set default threads per core
+    at::set_num_threads(1);
+    at::set_num_interop_threads(1);
+
+    string path;
+    long long nb_samples;
+    int features;
+
+    if(argc==1){
+        path="../../models/non_LR_model.pt";
+        nb_samples=100;
+        features=1;
+    }
+    else{
+        path=argv[1];
+        nb_samples=stoll(argv[2]);
+        features= stoi(argv[3]);
+    }
+
+
+    // Create a vector of inputs.
+    std::vector<torch::jit::IValue> inputs;
+    inputs.push_back(torch::rand({ nb_samples , features}));
+
+    //std::cout<<inputs<<std::endl;
+
+    // Deserialize the ScriptModule from a file using torch::jit::load().
+    torch::jit::script::Module model = torch::jit::load(path);
+    cout<<"module loading ..."<<endl;
+
+    // time_1: -------------------------------------------
+    auto time_1_start = high_resolution_clock::now();
+
+    auto output_pred = model.forward(inputs);
+
+    auto time_1_stop = high_resolution_clock::now();
+    //auto duration_predict = duration_cast<microseconds>(stop_predict - start_predict);
+    duration<double> time_1 = time_1_stop - time_1_start ; // secondes
+    cout <<nb_samples <<" time_1 took "<< time_1.count() << " secondes\n";
+
+    // time_3: ----------------------------------------------------------------
+    // vider le cache:
+    micro_benchmark_clear_cache();
+
+    for(int i =2; i<10; i++) {
+        auto time_4_start = high_resolution_clock::now();
+        output_pred = model.forward(inputs);
+        auto time_4_stop = high_resolution_clock::now();
+        //auto duration_predict = duration_cast<microseconds>(stop_predict - start_predict);
+        duration<double> time_4 = time_4_stop - time_4_start; // secondes
+        cout <<nb_samples<<" time_"<< i <<" took " << time_4.count() << " secondes\n";
+
+        // vider le cache:
+        micro_benchmark_clear_cache();
+    }
+
+    return 0;
+}
+
