@@ -13,8 +13,8 @@
 #include <typeinfo>
 #include <list>
 
-#include "../../include/cppflow/ops.h"
-#include "../../include/cppflow/model.h"
+#include "cppflow/ops.h"
+#include "cppflow/model.h"
 
 using  namespace std;
 using namespace std::chrono;

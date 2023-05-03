@@ -35,6 +35,7 @@ std::ostream& operator<<(std::ostream& oss,PredictionT<ValueT> const& prediction
       oss<<"]"<<std::endl ;
   }
   oss<<"]"<<std::endl ;
+  return oss;
 }
 
 torch::jit::script::Module read_model(std::string, bool);

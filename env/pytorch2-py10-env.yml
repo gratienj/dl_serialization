@@ -1,0 +1,13 @@
+name: psignn-pytorch2-py10-env
+channels:
+- pytorch
+- pyg
+- conda-forge/label/cf202011
+dependencies:
+- python=3.10
+- multiprocess
+- yaml
+- scipy
+- scikit-learn
+- matplotlib
+

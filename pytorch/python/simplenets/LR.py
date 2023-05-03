@@ -71,7 +71,7 @@ if __name__=='__main__':
     plt.title("linear regression")
     plt.legend()
     plt.grid()
-    plt.savefig("../../images/LR.png")
+    plt.savefig("../../../results/images/LR.png")
     plt.show()
 
 
@@ -79,12 +79,12 @@ if __name__=='__main__':
     #save model:
     # Use torch.jit.trace to generate a torch.jit.ScriptModule via tracing.
     traced_script_module = torch.jit.trace(model,X)
-    torch.jit.save(traced_script_module,"../models/LR_model.pt")
+    torch.jit.save(traced_script_module,"../../../results/models/LR_model.pt")
     print('model saved *******************')
 
     #-------------------------------------------------------load model----------------------------------------
     #load model:
-    """model_load = torch.load("../models/LR_model.pt")
+    """model_load = torch.load("../../../results/models/LR_model.pt")
     
     x=torch.tensor([10.])
     

@@ -29,6 +29,15 @@ if(NOT TENSORFLOW_FOUND)
 
   mark_as_advanced(TENSORFLOW_LIBRARY)
 
+  find_library(TENSORFLOW_FRAMEWORK_LIBRARY
+               NAMES tensorflow_framework
+               HINTS ${TENSORFLOW_ROOT}
+               PATH_SUFFIXES lib
+               ${_TENSORFLOW_SEARCH_OPTS}
+    )
+
+  mark_as_advanced(TENSORFLOW_FRAMEWORK_LIBRARY)
+
   find_path(TENSORFLOW_INCLUDE_DIR tensorflow/c/c_api.h
             HINTS ${TENSORFLOW_ROOT} 
             PATH_SUFFIXES include
@@ -44,7 +53,8 @@ set(TENSORFLOW_FIND_QUIETLY ON)
 find_package_handle_standard_args(TENSORFLOW
         DEFAULT_MSG
         TENSORFLOW_INCLUDE_DIR
-        TENSORFLOW_LIBRARY)
+        TENSORFLOW_LIBRARY
+        TENSORFLOW_FRAMEWORK_LIBRARY)
 
 
 if(TENSORFLOW_FOUND)
@@ -59,6 +69,20 @@ if(TENSORFLOW_FOUND)
         IMPORTED_LOCATION "${TENSORFLOW_LIBRARY}")
 
     set_target_properties(tensorflow PROPERTIES 
+          INTERFACE_INCLUDE_DIRECTORIES "${TENSORFLOW_INCLUDE_DIR}")
+
+
+  endif()
+
+  if(NOT TARGET tensorflow_framework)
+
+    add_library(tensorflow_framework UNKNOWN IMPORTED)
+
+    set_target_properties(tensorflow_framework PROPERTIES
+        IMPORTED_LINK_INTERFACE_LANGUAGES "C"
+        IMPORTED_LOCATION "${TENSORFLOW_FRAMEWORK_LIBRARY}")
+
+    set_target_properties(tensorflow_framework PROPERTIES
           INTERFACE_INCLUDE_DIRECTORIES "${TENSORFLOW_INCLUDE_DIR}")
 
 

@@ -4,8 +4,9 @@
 
 /*
  * lancer le programme avec totalview pour le debeuggage : mpirun -tv -np 4 ./test_LR_MPI.exe
- * */
+ **/
 
+// std:
 #include <iostream>
 #include <stdlib.h>
 #include <vector>
@@ -16,27 +17,18 @@
 #include <chrono>
 #include <typeinfo>
 #include <list>
-#include <algorithm>
-// multiprocs:
+
+// parallele:
 #include <mpi.h>
+#include <mkl.h>
+#include <mkl_service.h>
 
 // torch:
-#include <torch/torch.h>
-#include <torch/script.h>
-#include <ATen/Parallel.h>
-
-
-#include <boost/program_options/options_description.hpp>
-#include <boost/program_options/parsers.hpp>
-#include <boost/program_options/cmdline.hpp>
-#include <boost/program_options/variables_map.hpp>
-
-//#include <filesystem>
-#include <boost/filesystem.hpp>
+#include "cppflow/ops.h"
+#include "cppflow/model.h"
 
 using namespace std;
 using namespace std::chrono;
-
 
 // functions:
 // create 2D matrix:
@@ -49,7 +41,8 @@ void Matrix(int rows, int cols, std::vector<float>& arr) {
     }
 }
 
-// show 1D vector:
+
+// show 2D matrix:
 void show(std::vector<float>& arr, int rows, int cols){
     //show
     for(int i=0; i<rows; i++){
@@ -60,7 +53,6 @@ void show(std::vector<float>& arr, int rows, int cols){
     }
 }
 
-// show 2D matrix:
 void show(std::vector<std::vector<float>>& arr, int rows, int cols){
     //show
     for(int i=0; i<rows; i++){
@@ -86,50 +78,29 @@ void micro_benchmark_clear_cache() {
 int main(int argc, char* argv[]){
 
     // initialize MPI :
-    int comm_size, rank;
+    int size, rank;
     MPI_Init(&argc, &argv);
-    MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-    namespace po = boost::program_options;
-    // Declare the supported options.
-    po::options_description desc("Allowed options");
-    desc.add_options()
-    ("help", "produce help message")
-    ("use-gpu",         po::value<int>()->default_value(0),     "use gpu option")
-    ("global-size",     po::value<int>()->default_value(40320), "global size")
-    ("input-cols",      po::value<int>()->default_value(2),     "input cols")
-    ("output-cols",      po::value<int>()->default_value(1),     "output cols")
-    ("nb-calls",        po::value<int>()->default_value(10),    "nb calls")
-    ("model-file",      po::value<std::string>(),               "model file path") ;
 
-    po::variables_map vm;
-    po::store(po::parse_command_line(argc, argv, desc), vm);
-    po::notify(vm);
+    long long global_size, localdata_size;
+    int cols=1, out_size=1 , model_call_num=10;
+    string path;
 
-    if (vm.count("help")) {
-        std::cout << desc << "\n";
-        return 1;
+
+    if(argc==1){
+        global_size=40320;
+        localdata_size=(long long)global_size/size;
+        path="/work/kadik/Bureau/dev/torch_tensorflow_cpp/tensorflow/CPU/models/non_LR_model.pb";
+
+    } else  {
+        global_size=stoll(argv[1]);
+        localdata_size=(long long)global_size/size;
+        path=argv[2];
+        cols=stoi(argv[3]);
+        model_call_num=stoi(argv[4]);
     }
-
-    bool use_gpu            = vm["use-gpu"].as<int>() == 1 ;
-    string model_path       = vm["model-file"].as<std::string>();
-    std::size_t global_size = vm["global-size"].as<int>();
-    int input_cols          = vm["input-cols"].as<int>();
-    int output_cols         = vm["output-cols"].as<int>();
-    int model_call_num      = vm["nb-calls"].as<int>();
-
-
-    // set default threads per core
-    at::set_num_threads(1);
-    at::set_num_interop_threads(1);
-
-    // permutation de données en random pour essayer de vider le cache.
-    // std::random_device randomDevice;
-    // std::mt19937 generator(randomDevice());
-
-
-    long int localdata_size = global_size/comm_size;
 
     // Create a vector of inputs.
     vector<float> localdata;
@@ -138,35 +109,35 @@ int main(int argc, char* argv[]){
 
 
     /* defining a datatype for sub-matrix */
-    int count=localdata_size, length=input_cols, stride=input_cols;
+    int count=localdata_size, length=cols, stride=cols;
     MPI_Datatype sub_vec;
     MPI_Type_vector(count, length, stride, MPI_FLOAT, &sub_vec);
     MPI_Type_commit(&sub_vec);
 
     // create localdata memory holder:
-    Matrix(localdata_size, input_cols, localdata);
+    Matrix(localdata_size, cols, localdata);
 
     // Deserialize and load model: -------------------------------------------------------------------------------------
-    torch::jit::script::Module model=torch::jit::load(model_path);
-    // local data to predict:
-    vector<torch::jit::IValue> input_localdata;
+    cppflow::model model(path);
 
     // master proc:-----------------------------------------------------------------------------------------------------
     // créer les données de test
     if(rank==0){
         // data allocation:
         srand(time(0));
-        Matrix(global_size, input_cols, globaldata);
+        Matrix(global_size, cols, globaldata);
 
         //afficher les données:
         /*
         cout<<"data :------------------------------"<<endl;
-        show(globaldata, global_size, input_cols);
+        show(globaldata, global_size, cols);
         cout<<"------------------------------------"<<endl;
         */
 
+
         //gather data:
-        Matrix(global_size, output_cols, gather_data);
+        Matrix(global_size, out_size, gather_data);
+
     }
 
     // chrono scatter data: --------------------------------------------------------------------------------------------
@@ -178,55 +149,57 @@ int main(int argc, char* argv[]){
     //show data
     /*
     cout<<"-----------------"<<rank<<"-----------------"<<endl;
-    show(localdata, localdata_size, input_cols);
+    show(localdata, localdata_size, cols);
     */
 
 
     // chrono convertir en tensor: -------------------------------------------------------------------------------------
+    vector<int64_t> size_data{localdata_size,cols};
+
     auto start_convert_to_tensor = high_resolution_clock::now();
     // convertir en tensor :
-    auto options = torch::TensorOptions().dtype(torch::kFloat);
-    torch::Tensor tharray = torch::from_blob(localdata.data(), {localdata_size,input_cols}, options);
-    input_localdata.push_back(tharray);
+    auto input=cppflow::tensor(localdata,size_data);
     auto stop_convert_to_tensor = high_resolution_clock::now();
     duration<double> duration_convert_to_tensor = stop_convert_to_tensor - start_convert_to_tensor ; // secondes
     float f_duration_convert_to_tensor=duration_convert_to_tensor.count();
-
-    //cout<<"tharray: "<<tharray<<endl;
-
+    //cout<<"tensor : "<<input<<endl;
 
     // chrono predict:--------------------------------------------------------------------------------------------------
     vector<float> duration_predict_vec;
-    auto output_pred=torch::from_blob(localdata.data(), {localdata_size,output_cols}, options); // initialize
+    cppflow::tensor output_pred; // initialize
     auto start_predict= high_resolution_clock::now(); // initialize
     auto stop_predict= high_resolution_clock::now();  // initialize
     duration<double> duration_predict =stop_predict -start_predict ; // initialize
-    float f_duration_prediction=0; // initialize
+    double f_duration_prediction=0; // initialize
     for(int i =0; i<model_call_num; i++) {
         start_predict = high_resolution_clock::now(); // time start
-        output_pred = model.forward(input_localdata).toTensor(); // model inference
+        output_pred = model(input); // model inference
         stop_predict= high_resolution_clock::now(); // time stop
         duration_predict =stop_predict -start_predict; // mesure time (time stop - time start)
-        f_duration_prediction=duration_predict.count();
+        f_duration_prediction=(float)duration_predict.count();
         //cout<<"i: "<< i <<", durée: "<< f_duration_prediction<<"\n";
         duration_predict_vec.push_back(f_duration_prediction); // save in vector
 
-        // vilder le cache :
+        // vider le cache:
         micro_benchmark_clear_cache();
     }
 
-
-    // chrono convert to std array:-------------------------------------------------------------------------------------
+    // chrono tensor -> std::vector:------------------------------------------------------------------------------------
     auto start_convert_to_array = high_resolution_clock::now();
     // convert to std array:
-    // tensor = tensor.contiguous();
-    std::vector<float> out(output_pred.data_ptr<float>(), output_pred.data_ptr<float>()+output_pred.numel());
-    //for(auto i=0; i<localdata_size; ++i){
-    //    localdata[i]=output_pred[i].item<float>();
-    //}
+    std::vector<float> out;
+    out=output_pred.get_data<float>();
     auto stop_convert_to_array= high_resolution_clock::now();
     duration<double> duration_convert_to_array= stop_convert_to_array - start_convert_to_array;
     float f_duration_convert_to_array=duration_predict.count();
+
+    /*
+    cout<<"-----------------"<<rank<<"-----------------"<<endl;
+    cout<<"predict size: "<<localdata_size<<"x"<<cols<<endl;
+    show(out, localdata_size, out_size);
+    */
+
+
 
 
     // chrono gather:---------------------------------------------------------------------------------------------------
@@ -268,15 +241,21 @@ int main(int argc, char* argv[]){
         /*
          * affichage des temps de réponses de chaque opération.
          */
+        /*
+        cout<<"-----------------"<<rank<<"-----------------"<<endl;
+        cout<<"gather: "<<endl;
+        show(gather_data, global_size, out_size);
+        */
+
         cout << "duration_scatter took " << r_duration_scatter<< " secondes\n";
         cout << "duration_convert_to_tensor took " << r_duration_convert_to_tensor << " secondes\n";
         for(int i=0; i<model_call_num; i++) {
-            cout <<comm_size<<" duration_predict_" << i << " took " << r_duration_predict_vec[i] << " secondes\n";
+            cout <<size<<" duration_predict_" << i << " took " << r_duration_predict_vec[i] << " secondes\n";
         }
         cout << "duration_convert_to_array took " << r_duration_convert_to_array << " secondes\n";
         cout << "duration_gather took " << r_duration_gather << " secondes\n";
-        auto total_duration=r_duration_scatter+r_duration_convert_to_tensor
-                            +r_duration_convert_to_array+r_duration_gather;
+        auto total_duration=r_duration_scatter+r_duration_convert_to_tensor+r_duration_convert_to_array
+                            +r_duration_gather;
         cout << "total hors prediction took " <<  total_duration << " secondes\n";
 
         // free mem:

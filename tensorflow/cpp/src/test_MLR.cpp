@@ -13,8 +13,8 @@
 #include <typeinfo>
 #include <list>
 
-#include "../../include/cppflow/ops.h"
-#include "../../include/cppflow/model.h"
+#include "cppflow/ops.h"
+#include "cppflow/model.h"
 
 // kadik
 #include <omp.h>

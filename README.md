@@ -180,6 +180,8 @@ bazel build --config opt //tensorflow/tools/lib_package:libtensorflow
 
 ### A/ Environnement Conda
 
+#### On CentOS 7
+
 - pytorch-env.yml file :
  
  ```bash
@@ -227,6 +229,40 @@ torch-geometric
 ```bash
 conda activate pytorch-env
 ```
+#### On CentOS 8 or Rocky 8
+
+- pytorch-env.yml file :
+ 
+ ```bash
+ name: pytorch2-py10-env
+channels:
+- conda-forge/label/cf202003
+- pytorch
+dependencies:
+- python=3.10
+- multiprocess
+- matplotlib
+- numpy
+- scipy
+ ```
+ 
+```bash
+conda env create -f pytorch2-py10-env.yml
+conda install pytorch torchvision torchaudio pytorch-cuda=11.7 -c pytorch -c nvidia
+conda install pyg -c pytorch -c pyg -c conda-forge
+conda install pytorch-scatter -c pyg
+conda install pytorch-sparse -c pyg
+conda install pytorch-cluster -c pyg
+conda install pytorch-spline-conv -c pyg
+conda install pytorch-lightning -c conda-forge
+```
+
+- Environment activation :
+```bash
+conda activate pytorch2-py10-env
+```
+
+
 
 ### B/ Environment CPP LibTorch (libtorch C++ API and torch-sparse torch-scatter C++ extension for GNN)
 

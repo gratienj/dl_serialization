@@ -92,7 +92,7 @@ if __name__=="__main__":
     plt.ylim(top=1.2)  # adjust the top leaving bottom unchanged
     plt.ylim(bottom=-1.2)
 
-    plt.savefig("../../images/non_LR.png")
+    plt.savefig("../../../results/images/non_LR.png")
 
     plt.show()
     plt.clf()
@@ -103,7 +103,7 @@ if __name__=="__main__":
     #-------------------------------------------------------save----------------------------------------
     #save model:
     traced_script_module = torch.jit.trace(model,X)
-    torch.jit.save(traced_script_module,"../models/non_LR_model.pt")
+    torch.jit.save(traced_script_module,"../../../results/models/non_LR_model.pt")
     print('model saved *******************')
 
 

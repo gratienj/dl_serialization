@@ -108,14 +108,14 @@ if __name__=='__main__':
     ax2.view_init(elev=16, azim=-51)
     ax3.view_init(elev=60, azim=165)
 
-    plt.savefig("../../images/MLR.png")
+    plt.savefig("../../../results/images/MLR.png")
 
     plt.show()
 
     #-------------------------------------------------------save----------------------------------------
     #save model:
     traced_script_module = torch.jit.trace(model,X)
-    torch.jit.save(traced_script_module,"../models/MLR_model.pt")
+    torch.jit.save(traced_script_module,"../../../results/models/MLR_model.pt")
     print('model saved *******************')
 
     #-------------------------------------------------------load model----------------------------------------
