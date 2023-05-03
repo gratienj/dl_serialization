@@ -44,13 +44,13 @@ set_property(TARGET test_non_LR.exe PROPERTY CXX_STANDARD 17)
 add_executable(benchmark_scale_tf.exe benchmark_scale_tf.cpp)
 
 # target link libraries:
-target_link_libraries(benchmark_scale_tf.exe tensorflow tensorflow_framework)
+target_link_libraries(benchmark_scale_tf.exe boost tensorflow tensorflow_framework)
 # set property:
 set_property(TARGET benchmark_scale_tf.exe PROPERTY CXX_STANDARD 17)
 
 add_executable(benchmark_mpi_tf.exe benchmark_mpi_tf.cpp)
 #add target libraries:
-target_link_libraries(benchmark_mpi_tf.exe tensorflow tensorflow_framework MPI::MPI_CXX)
+target_link_libraries(benchmark_mpi_tf.exe boost tensorflow tensorflow_framework MPI::MPI_CXX)
 
 # set property:
 set_property(TARGET benchmark_mpi_tf.exe PROPERTY CXX_STANDARD 17)

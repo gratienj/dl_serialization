@@ -23,6 +23,13 @@
 #include <mkl.h>
 #include <mkl_service.h>
 
+#include <boost/program_options/options_description.hpp>
+#include <boost/program_options/parsers.hpp>
+#include <boost/program_options/cmdline.hpp>
+#include <boost/program_options/variables_map.hpp>
+
+//#include <filesystem>
+#include <boost/filesystem.hpp>
 // torch:
 #include "cppflow/ops.h"
 #include "cppflow/model.h"
@@ -84,23 +91,35 @@ int main(int argc, char* argv[]){
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
 
-    long long global_size, localdata_size;
-    int cols=1, out_size=1 , model_call_num=10;
-    string path;
+    namespace po = boost::program_options;
+    // Declare the supported options.
+    po::options_description desc("Allowed options");
+    desc.add_options()
+    ("help", "produce help message")
+    ("use-gpu",         po::value<int>()->default_value(0),     "use gpu option")
+    ("nb-samples",      po::value<int>()->default_value(40320), "nb samples")
+    ("nb-features",     po::value<int>()->default_value(1),     "nb features")
+    ("nb-calls",        po::value<int>()->default_value(10),    "nb calls")
+    ("model-file",      po::value<std::string>(),               "model file path") ;
 
+    po::variables_map vm;
+    po::store(po::parse_command_line(argc, argv, desc), vm);
+    po::notify(vm);
 
-    if(argc==1){
-        global_size=40320;
-        localdata_size=(long long)global_size/size;
-        path="/work/kadik/Bureau/dev/torch_tensorflow_cpp/tensorflow/CPU/models/non_LR_model.pb";
-
-    } else  {
-        global_size=stoll(argv[1]);
-        localdata_size=(long long)global_size/size;
-        path=argv[2];
-        cols=stoi(argv[3]);
-        model_call_num=stoi(argv[4]);
+    if (vm.count("help")) {
+        std::cout << desc << "\n";
+        return 1;
     }
+
+    bool use_gpu         = vm["use-gpu"].as<int>() == 1 ;
+    string model_path    = vm["model-file"].as<std::string>();
+    int global_size      = vm["nb-samples"].as<int>();
+    int cols             = vm["nb-features"].as<int>();
+    int out_size=1 ;
+    int model_call_num   = vm["nb-calls"].as<int>();
+
+    long long localdata_size (long long)global_size/size;
+
 
     // Create a vector of inputs.
     vector<float> localdata;
@@ -118,7 +137,7 @@ int main(int argc, char* argv[]){
     Matrix(localdata_size, cols, localdata);
 
     // Deserialize and load model: -------------------------------------------------------------------------------------
-    cppflow::model model(path);
+    cppflow::model model(model_path);
 
     // master proc:-----------------------------------------------------------------------------------------------------
     // créer les données de test

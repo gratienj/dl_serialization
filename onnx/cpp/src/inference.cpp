@@ -23,6 +23,8 @@
 #include <boost/program_options/cmdline.hpp>
 #include <boost/program_options/variables_map.hpp>
 
+#include <exception>
+
 template <typename T>
 T vectorProduct(const std::vector<T>& v)
 {
@@ -211,8 +213,8 @@ int main(int argc, char* argv[])
   std::cout << "Number of Input Nodes: " << numInputNodes << std::endl;
   std::cout << "Number of Output Nodes: " << numOutputNodes << std::endl;
 
-  const char* inputName = session.GetInputName(0, allocator);
-  std::cout << "Input Name: " << inputName << std::endl;
+  auto inputName = session.GetInputNameAllocated(0, allocator);
+  std::cout << "Input Name: " << *inputName << std::endl;
 
   Ort::TypeInfo inputTypeInfo = session.GetInputTypeInfo(0);
   auto inputTensorInfo = inputTypeInfo.GetTensorTypeAndShapeInfo();
@@ -223,8 +225,8 @@ int main(int argc, char* argv[])
   std::vector<int64_t> inputDims = inputTensorInfo.GetShape();
   std::cout << "Input Dimensions: " << inputDims << std::endl;
 
-  const char* outputName = session.GetOutputName(0, allocator);
-  std::cout << "Output Name: " << outputName << std::endl;
+  auto outputName = session.GetOutputNameAllocated(0, allocator);
+  std::cout << "Output Name: " << *outputName << std::endl;
 
   Ort::TypeInfo outputTypeInfo = session.GetOutputTypeInfo(0);
   auto outputTensorInfo = outputTypeInfo.GetTensorTypeAndShapeInfo();
@@ -266,8 +268,11 @@ int main(int argc, char* argv[])
           labels.size() == outputTensorSize));
   std::vector<float> outputTensorValues(outputTensorSize);
 
-  std::vector<const char*> inputNames{inputName};
-  std::vector<const char*> outputNames{outputName};
+  //std::vector<char const *> inputNames{*inputName};
+  //std::vector<char const *> outputNames{*outputName};
+  const char* input_names[] = {inputName.get()};
+  char* output_names[] = {outputName.get()};
+
   std::vector<Ort::Value> inputTensors;
   std::vector<Ort::Value> outputTensors;
 
@@ -280,9 +285,15 @@ int main(int argc, char* argv[])
       memoryInfo, outputTensorValues.data(), outputTensorSize,
       outputDims.data(), outputDims.size()));
 
-  session.Run(Ort::RunOptions{nullptr}, inputNames.data(),
-              inputTensors.data(), 1, outputNames.data(),
+  try {
+  session.Run(Ort::RunOptions{nullptr}, input_names,
+              inputTensors.data(), 1, output_names,
               outputTensors.data(), 1);
+  }
+  catch(Ort::Exception exc)
+  {
+        std::cerr << exc.what() << std::endl;
+  }
 
   int predId = 0;
   float activation = 0;
@@ -309,8 +320,8 @@ int main(int argc, char* argv[])
       std::chrono::steady_clock::now();
   for (int i = 0; i < numTests; i++)
   {
-      session.Run(Ort::RunOptions{nullptr}, inputNames.data(),
-                  inputTensors.data(), 1, outputNames.data(),
+      session.Run(Ort::RunOptions{nullptr}, input_names,
+                  inputTensors.data(), 1, output_names,
                   outputTensors.data(), 1);
   }
   std::chrono::steady_clock::time_point end =

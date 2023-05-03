@@ -12,6 +12,7 @@ else()
 endif()
 
 
+message(status " FIND ONNX : ${ONNX_ROOT} ${ONNX_FOUND}")
 if(NOT ONNX_FOUND)
    # pour limiter le mode verbose
   set(ONNX_FIND_QUIETLY ON)
@@ -20,22 +21,24 @@ if(NOT ONNX_FOUND)
 
   find_library(ONNX_RUNTIME_LIB onnxruntime 
                HINTS ${ONNX_ROOT}/lib)
-  
+
+  message(status "ONNX INCLUDE DIR : ${ONNX_RUNTIME_SESSION_INCLUDE_DIRS}")
+  message(status "ONNX LIB  : ${ONNX_RUNTIME_LIB}")
 endif()
 
 set(ONNX_FIND_QUIETLY ON)
 find_package_handle_standard_args(ONNX
         DEFAULT_MSG
-        ONNX_FOUND
         ONNX_RUNTIME_SESSION_INCLUDE_DIRS
         ONNX_RUNTIME_LIB)
 
 if(ONNX_FOUND)
-  set(ONNX_LIBRARIES ${ONNX_LIBS})
-  set(ONNX_INCLUDE_DIRS ${ONNX_INCLUDE_DIRS})
+  message(status "ONNX FOUND")
+  #set(ONNX_LIBRARIES ${ONNX_LIBS})
+  #set(ONNX_INCLUDE_DIRS ${ONNX_INCLUDE_DIRS})
 
   if(NOT TARGET onnx)
-
+    message(status "ONNX INCLUDE DIR : ${ONNX_RUNTIME_SESSION_INCLUDE_DIRS}")
     add_library(onnx UNKNOWN IMPORTED)
 
     set_target_properties(onnx PROPERTIES
@@ -44,5 +47,9 @@ if(ONNX_FOUND)
 
     set_target_properties(onnx PROPERTIES
           INTERFACE_INCLUDE_DIRECTORIES "${ONNX_RUNTIME_SESSION_INCLUDE_DIRS}")
+  else()
+    message(status "TARGET ONNX ALLREADY DEFINED")
   endif()
+else()
+    message(status "ONNX NOT FOUND")
 endif(ONNX_FOUND)

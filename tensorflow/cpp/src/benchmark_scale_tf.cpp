@@ -13,6 +13,14 @@
 #include <typeinfo>
 #include <list>
 
+
+#include <boost/program_options/options_description.hpp>
+#include <boost/program_options/parsers.hpp>
+#include <boost/program_options/cmdline.hpp>
+#include <boost/program_options/variables_map.hpp>
+
+//#include <filesystem>
+#include <boost/filesystem.hpp>
 #include "cppflow/ops.h"
 #include "cppflow/model.h"
 
@@ -36,20 +44,32 @@ void micro_benchmark_clear_cache() {
 
 int main(int argc, char* argv[]){
 
-    string MLR;
-    long long nb_samples;
-    int features;
-    if(argc==1){
-        MLR="/work/kadik/Bureau/dev/torch_tensorflow_cpp/tensorflow/CPU/models/MLR_model.pb";
-        nb_samples=100;
-        features=1;
-    }
-    else{
-        MLR=argv[1];
-        nb_samples=stoll(argv[2]);
-        features=stoi(argv[3]);
+    namespace po = boost::program_options;
+    // Declare the supported options.
+    po::options_description desc("Allowed options");
+    desc.add_options()
+    ("help", "produce help message")
+    ("use-gpu",         po::value<int>()->default_value(0),     "use gpu option")
+    ("nb-samples",      po::value<int>()->default_value(64000), "nb samples")
+    ("nb-features",     po::value<int>()->default_value(1),     "nb features")
+    ("nb-calls",        po::value<int>()->default_value(10),    "nb calls")
+    ("model-file",      po::value<std::string>(),               "model file path") ;
 
+    po::variables_map vm;
+    po::store(po::parse_command_line(argc, argv, desc), vm);
+    po::notify(vm);
+
+    if (vm.count("help")) {
+        std::cout << desc << "\n";
+        return 1;
     }
+
+    bool use_gpu         = vm["use-gpu"].as<int>() == 1 ;
+    string model_path    = vm["model-file"].as<std::string>();
+    int nb_samples       = vm["nb-samples"].as<int>();
+    int features         = vm["nb-features"].as<int>();
+    int model_call_num   = vm["nb-calls"].as<int>();
+
 
     vector<int64_t> size{nb_samples,features};
     vector<float> data;
@@ -67,7 +87,7 @@ int main(int argc, char* argv[]){
 
     //--------------
 
-    cppflow::model model(MLR);
+    cppflow::model model(model_path);
 
 
     // time_1: -------------------------------------------
