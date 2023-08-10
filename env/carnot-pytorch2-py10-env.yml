@@ -1,0 +1,27 @@
+name: carnot-pytorch2-py10-env
+hannels:
+- pytorch
+- pyg
+- nvidia
+- conda-forge
+- conda-forge/label/cf202011
+dependencies:
+- python=3.10
+- multiprocess
+- yaml
+- scipy
+- scikit-learn
+- matplotlib
+- pytorch
+- torchvision
+- torchaudio
+- pytorch-cuda=11.7
+- tensorly
+- tensorly-torch
+- pytorch-lightning
+- opt_einsum
+- wandb
+- h5py
+- zarr
+- pydoe2
+

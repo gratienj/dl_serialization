@@ -1,7 +1,9 @@
-name: psignn-pytorch2-py10-env
-channels:
+name: pytorch2-py10-env
+hannels:
 - pytorch
 - pyg
+- nvidia
+- conda-forge
 - conda-forge/label/cf202011
 dependencies:
 - python=3.10
@@ -10,4 +12,14 @@ dependencies:
 - scipy
 - scikit-learn
 - matplotlib
+- pytorch
+- torchvision
+- torchaudio
+- pytorch-cuda=11.7
+- tensorly
+- tensorly-torch
+- opt_einsum
+- wandb
+- h5py
+- zarr
 
