@@ -126,7 +126,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     test_id = args.test_id
     data_id = args.data_id
-
+    device = args.device
     if test_id == 0:
         print("TEST 2 COMPONENTS")
         components = [74828, 110543]
@@ -147,7 +147,6 @@ if __name__ == "__main__":
 
         print(design.head(2))
         dtype = torch.float64
-        device = "cpu"
         pcs, tcs, omegas, kij, kijt, kijt2 = get_properties(components, dtype, device)
         ptvle = PTVLE(
             pcs,
@@ -179,7 +178,6 @@ if __name__ == "__main__":
 
         dtype = torch.float64
         torch.set_default_dtype(torch.float64)
-        device = "cpu"
 
         print("PREPARE DATA")
         #X = torch.from_numpy(design.to_numpy())[unstable]
@@ -205,7 +203,7 @@ if __name__ == "__main__":
 
         print("JIT SCRIPT EXPORT MODEL")
         snet = torch.jit.script(net)
-        snet.save('ptflash.pt')
+        snet.save(f'ptflash_2comp_{device}.pt')
         np.save(f"data_2comp.npy",design.to_numpy())
 
 
@@ -245,7 +243,6 @@ if __name__ == "__main__":
 
         print(design.head(2))
         dtype = torch.float64
-        device = "cpu"
         pcs, tcs, omegas, kij, kijt, kijt2 = get_properties(components, dtype, device)
         ptvle = PTVLE(
             pcs,
@@ -277,7 +274,6 @@ if __name__ == "__main__":
 
         dtype = torch.float64
         torch.set_default_dtype(torch.float64)
-        device = "cpu"
 
         #print("PREPARE DATA")
         #X = torch.from_numpy(design.to_numpy())[unstable]
@@ -290,7 +286,7 @@ if __name__ == "__main__":
 
 
         print("LOAD CARNOT MODEL FROM PT FILE")
-        net = torch.jit.load('ptflash_2comp.pt')
+        net = torch.jit.load(f'ptflash_2comp_{device}.pt')
         net.eval()
 
         print("EVAL CARNOT MODEL")
@@ -324,7 +320,6 @@ if __name__ == "__main__":
         )
         design = doe.create_design()
         dtype = torch.float64
-        device = "cpu"
         pcs, tcs, omegas, kij, kijt, kijt2 = utils.get_properties(components, dtype, device)
         ptvle = PTVLE(
             pcs,
@@ -503,7 +498,6 @@ if __name__ == "__main__":
 
         print(design.head(2))
         dtype = torch.float64
-        device = "cpu"
         pcs, tcs, omegas, kij, kijt, kijt2 = get_properties(components, dtype, device)
         ptvle = PTVLE(
             pcs,
@@ -535,7 +529,6 @@ if __name__ == "__main__":
 
         dtype = torch.float64
         torch.set_default_dtype(torch.float64)
-        device = "cpu"
 
         print("DEFINE CARNOT MODEL")
         net = PTFlash_model(components,dtype,device)
@@ -551,7 +544,7 @@ if __name__ == "__main__":
 
         print("JIT SCRIPT EXPORT MODEL")
         snet = torch.jit.script(net)
-        snet.save('ptflash_9comp.pt')
+        snet.save(f"ptflash_9comp_{device}.pt")
         np.save(f"data_9comp.npy",design.to_numpy())
 
         #print("PREPARE DATA")
@@ -565,7 +558,7 @@ if __name__ == "__main__":
 
 
         print("LOAD CARNOT MODEL FROM PT FILE")
-        net = torch.jit.load('ptflash_9comp.pt')
+        net = torch.jit.load(f'ptflash_9comp_{device}.pt')
         net.eval()
 
         print("EVAL CARNOT MODEL")
@@ -600,7 +593,6 @@ if __name__ == "__main__":
         )
         design = doe.create_design()
         dtype = torch.float64
-        device = "cpu"
         pcs, tcs, omegas, kij, kijt, kijt2 = get_properties(components, dtype, device)
         ptvle = PTVLE(
             pcs,
@@ -756,7 +748,6 @@ if __name__ == "__main__":
         )
         design = doe.create_design()
         dtype = torch.float64
-        device = "cpu"
         pcs, tcs, omegas, kij, kijt, kijt2 = get_properties(components, dtype, device)
         ptvle = PTVLE(
             pcs,
@@ -853,7 +844,6 @@ if __name__ == "__main__":
         )
         design = doe.create_design()
         dtype = torch.float64
-        device = "cpu"
         pcs, tcs, omegas, kij, kijt, kijt2 = utils.get_properties(components, dtype, device)
         ptvle = PTVLE(
             pcs,
@@ -956,7 +946,6 @@ if __name__ == "__main__":
 
         dtype = torch.float64
         torch.set_default_dtype(torch.float64)
-        device = "cpu"
         pcs, tcs, omegas, kij, kijt, kijt2 = utils.get_properties(components, dtype, device)
         ptvle = PTVLE(
             pcs,
