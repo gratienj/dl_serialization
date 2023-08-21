@@ -28,6 +28,8 @@ import onnxruntime as ort
 
 import numpy as np
 
+from timeit import default_timer
+
 class RR_Solver(torch.autograd.Function):
     """
     Use the implicit function theorem to directly obtain the partial derivatives
@@ -118,21 +120,25 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='GNNNet test functions')
     parser.add_argument("--test_id",       type=int, default=0,              help="Test query")
     parser.add_argument("--data_id",       type=int, default=0,              help="Data query")
+    parser.add_argument("--nb_samples",    type=int, default=100,            help="nb samples")
     parser.add_argument("--batch_size",    type=int, default=1,              help="Batch size query")
     parser.add_argument("--data_dir_path", type=str, default="./data",       help="data dir path")
     parser.add_argument("--dir_path",      type=str, default="./",           help="dir path")
     parser.add_argument("--model_name",    type=str, default="gnn1_model",   help="model name")
     parser.add_argument("--device",        type=str, default="cpu",          help="device cpu, cuda")
+    parser.add_argument("--save_mode",     type=str, default="dict",         help="dict, script")
+    parser.add_argument("--output",        type=int, default=0,              help="Output level")
     args = parser.parse_args()
     test_id = args.test_id
     data_id = args.data_id
+    n_samples = args.nb_samples
     device = args.device
+    save_mode = args.save_mode
     if test_id == 0:
         print("TEST 2 COMPONENTS")
         components = [74828, 110543]
         n_components = len(components)
         conditions = {"pmin": 1.0e5, "pmax": 1.0e7, "tmin": 200, "tmax": 500}
-        n_samples = 100
         doe = DOE(
             n_samples,
             n_components,
@@ -228,7 +234,6 @@ if __name__ == "__main__":
         components = [74828, 110543]
         n_components = len(components)
         conditions = {"pmin": 1.0e5, "pmax": 1.0e7, "tmin": 200, "tmax": 500}
-        n_samples = 100
         doe = DOE(
             n_samples,
             n_components,
@@ -483,7 +488,6 @@ if __name__ == "__main__":
         components = [74828, 74840, 74986, 106978, 109660, 110543, 100007, 124389, 7727379]
         n_components = len(components)
         conditions = {"pmin": 5.0e6, "pmax": 2.5e7, "tmin": 200, "tmax": 600}
-        n_samples = 100
         doe = DOE(
             n_samples,
             n_components,
@@ -521,11 +525,12 @@ if __name__ == "__main__":
             async_analysis=False,
             debug=True,
         )
-        print("UNSTABLE",unstable)
-        print("THETA",theta_v)
-        print("XI",xi)
-        print("YI",yi)
-        print("KI",ki)
+        if args.output == 1 :
+            print("UNSTABLE",unstable)
+            print("THETA",theta_v)
+            print("XI",xi)
+            print("YI",yi)
+            print("KI",ki)
 
         dtype = torch.float64
         torch.set_default_dtype(torch.float64)
@@ -535,17 +540,24 @@ if __name__ == "__main__":
         net.eval()
 
         print("EVAL CARNOT MODEL")
+        start = default_timer()
         unstable, theta_v, xi, yi, ki = net(inputs)
-        print("UNSTABLE",unstable)
-        print("THETA",theta_v)
-        print("XI",xi)
-        print("YI",yi)
-        print("KI",ki)
+        time = default_timer() - start
+        print(f"TIME FOR PYTORCH INFERENCE:{time:.4f}s \n")
+        if args.output == 1 :
+            print("UNSTABLE",unstable)
+            print("THETA",theta_v)
+            print("XI",xi)
+            print("YI",yi)
+            print("KI",ki)
+
+        print("TORCH EXPORT MODEL")
+        torch.save(net.state_dict(), f"ptflash_dict_9comp_{n_samples}_{device}.pt")
 
         print("JIT SCRIPT EXPORT MODEL")
         snet = torch.jit.script(net)
-        snet.save(f"ptflash_9comp_{device}.pt")
-        np.save(f"data_9comp.npy",design.to_numpy())
+        snet.save(f"ptflash_jit_9comp_{n_samples}_{device}.pt")
+        np.save(f"data_9comp_{n_samples}_{device}.npy",design.to_numpy())
 
         #print("PREPARE DATA")
         #X = torch.from_numpy(design.to_numpy())[unstable]
@@ -557,18 +569,45 @@ if __name__ == "__main__":
         #y = y.type(torch.FloatTensor)
 
 
-        print("LOAD CARNOT MODEL FROM PT FILE")
-        net = torch.jit.load(f'ptflash_9comp_{device}.pt')
-        net.eval()
 
         print("EVAL CARNOT MODEL")
         inputs = torch.tensor(design.to_numpy()[data_id:data_id+args.batch_size,:], dtype=dtype, device=device)
-        unstable, theta_v, xi, yi, ki = net(inputs)
-        print("UNSTABLE",unstable)
-        print("THETA",theta_v)
-        print("XI",xi)
-        print("YI",yi)
-        print("KI",ki)
+        if save_mode == "dict":
+            print("LOAD CARNOT MODEL FROM DICT PT FILE")
+            net = PTFlash_model(components,dtype,device)
+            net.load_state_dict(torch.load(f"ptflash_dict_9comp_{n_samples}_{device}.pt"))
+            net.eval()
+
+            start = default_timer()
+            unstable, theta_v, xi, yi, ki = net(inputs)
+            time = default_timer() - start
+            print(f"TIME FOR TORCH DICT INFERENCE 1:{time:.4f}s \n")
+
+            start = default_timer()
+            unstable, theta_v, xi, yi, ki = net(inputs)
+            time = default_timer() - start
+            print(f"TIME FOR TORCH DICT INFERENCE 2:{time:.4f}s \n")
+        else :
+            print("LOAD CARNOT MODEL FROM JIT PT FILE")
+            net = torch.jit.load(f'ptflash_jit_9comp_{n_samples}_{device}.pt')
+            net.eval()
+
+            start = default_timer()
+            unstable, theta_v, xi, yi, ki = net(inputs)
+            time = default_timer() - start
+            print(f"TIME FOR TORCH JIT INFERENCE 1:{time:.4f}s \n")
+
+            start = default_timer()
+            #unstable, theta_v, xi, yi, ki = net(inputs)
+            time = default_timer() - start
+            print(f"TIME FOR TORCH JIT INFERENCE 2:{time:.4f}s \n")
+
+        if args.output == 1 :
+            print("UNSTABLE",unstable)
+            print("THETA",theta_v)
+            print("XI",xi)
+            print("YI",yi)
+            print("KI",ki)
 
     if test_id == 2 :
         print("TEST CLASSIFIER 9 COMPONENTS")

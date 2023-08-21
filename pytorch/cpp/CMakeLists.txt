@@ -24,6 +24,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 include(cmake/FindBoost.cmake)
 include(cmake/FindTorch.cmake)
 include(cmake/FindOpenCV.cmake)
+include(cmake/FindCarnot.cmake)
+include(cmake/FindCAWFInference.cmake)
 
 find_package(MPI REQUIRED)
 
