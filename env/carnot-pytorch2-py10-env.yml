@@ -1,5 +1,5 @@
 name: carnot-pytorch2-py10-env
-hannels:
+channels:
 - pytorch
 - pyg
 - nvidia

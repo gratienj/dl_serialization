@@ -6,7 +6,7 @@ INSTALL (TARGETS test_loadmodel.exe RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}
 
 add_executable(test_ptcarnot.exe test_carnot.cpp cnpy.cpp carnot/PTFlash.cpp)
 target_include_directories(test_ptcarnot.exe PRIVATE ${TorchCPP_SOURCE_DIR}/src)
-TARGET_LINK_LIBRARIES(test_ptcarnot.exe torch carnot cawfinference boost z)
+TARGET_LINK_LIBRARIES(test_ptcarnot.exe torch carnot cawfinference boost z dl)
 INSTALL (TARGETS test_loadmodel.exe RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}/bin")
 
 if(TARGET opencv)

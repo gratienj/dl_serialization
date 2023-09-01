@@ -3,6 +3,7 @@ from torch import Tensor
 from typing import Optional
 from timeit import default_timer
 
+from ptflash.networks import PTNet
 from ptflash.subroutines import PTFlash
 
 
@@ -488,7 +489,7 @@ class PTVLE:
 
         return unstable, theta_v, xi, yi, ki
 
-class SPTVLE:
+class SPTVLE1:
     """
     Vapour-liquid equilibrium based on PyTorch
 
@@ -605,7 +606,7 @@ class SPTVLE:
         debug: bool, default=False
             If True, print the process results for debugging.
         """
-        threshold = (0.05, 0.95)
+        #threshold = (0.05, 0.95)
         # if classifier is given, use it to predict stability
 
         # initialize ki if necessary
@@ -623,6 +624,204 @@ class SPTVLE:
         sa_inputs = inputs[sa_indices]
 
         # extract samples used to run stability analysis
+        #print("INDICES NUMEL",sa_indices.numel())
+        if sa_indices.numel() > 0:
+            sa_ki = ki[sa_indices]
+            if lnphis is None:
+                sa_lnphis = None
+            else:
+                sa_lnphis = lnphis[sa_indices]
+
+            # stability analysis
+            # run vapour and liquid-like estimates in sequence
+            vapour_stable, vapour_wi, vapour_tm = analyser(
+                self.flasher,
+                sa_inputs,
+                sa_ki,
+                sa_lnphis,
+                vapour_like=True,
+                sa_max_nit1=self.sa_max_nit1,
+                sa_max_nit2=self.sa_max_nit2,
+                debug=False,
+            )
+            liquid_stable, liquid_wi, liquid_tm = analyser(
+                self.flasher,
+                sa_inputs,
+                sa_ki,
+                sa_lnphis,
+                vapour_like=False,
+                sa_max_nit1=self.sa_max_nit1,
+                sa_max_nit2=self.sa_max_nit2
+            )
+
+            # merge the results of stability analysis with vapour-like and liquid-like estimates
+            sa_stable = (vapour_stable & liquid_stable).view(-1)
+            sa_unstable = ~sa_stable
+            # reinitialize ki based on stability analysis
+            # if liquid_tm < vapour_tm, then ki = zi / liquid_wi
+            # if liquid_tm > vapour_tm, then ki = vapour_wi / zi
+            cond = liquid_tm[sa_unstable] < vapour_tm[sa_unstable]
+            sa_inputs2 = sa_inputs[sa_unstable]
+            liquid_ki = sa_inputs2[:, 2:] / liquid_wi[sa_unstable]
+            vapour_ki = vapour_wi[sa_unstable] / sa_inputs2[:, 2:]
+            estimated_ki = torch.where(cond.unsqueeze(-1), liquid_ki, vapour_ki)
+            ki[sa_indices[sa_unstable]] = estimated_ki
+
+            stable[sa_indices[sa_unstable]] = False
+            unstable = ~stable
+            inputs = inputs[unstable]
+            ki = ki[unstable]
+            #print("UNSTABLE",unstable)
+        else:
+            inputs = inputs[~stable]
+            ki = ki[~stable]
+            unstable = ~stable
+            #print("UNSTABLE",unstable)
+
+        # Phase split calculations
+        if lnphis is not None:
+            lnphis = lnphis[unstable]
+        theta_v, xi, yi, ki = splitter(
+            self.flasher, inputs, ki, lnphis, self.split_max_nit1, self.split_max_nit2, debug=False
+        )
+
+        return unstable, theta_v, xi, yi, ki
+
+
+class SPTVLE2:
+    """
+    Vapour-liquid equilibrium based on PyTorch
+
+    Parameters
+    ----------
+    pcs: array-like, critical pressure
+
+    tcs: array-like, critical temperature
+
+    omegas: array-like, acentric parameters
+
+    kij: square matrix of shape (n_components, n_components)
+        Temperature-independent binary interaction parameters
+
+    kijt: square matrix of shape (n_components, n_components)
+        Temperature-dependent binary interaction parameters
+
+    kijt2: square matrix of shape (n_components, n_components)
+        Squared-temperature-dependent binary interaction parameters
+
+    cubic_solver: str, halley or cardano, default="halley"
+
+    dtype: torch.dtype, default=torch.float64
+
+    device: torch.device, default=None
+    """
+
+    def __init__(
+        self,
+        pcs: Tensor,
+        tcs: Tensor,
+        omegas: Tensor,
+        kij: Tensor,
+        kijt: Tensor,
+        kijt2: Tensor,
+        cubic_solver: str = "halley",
+        dtype: torch.dtype = torch.float64,
+        device: Optional[torch.device] = None,
+    ):
+
+        self.sa_max_nit1 = 9
+        self.sa_max_nit2 = 40
+        self.split_max_nit1 = 9
+        self.split_max_nit2 = 40
+
+        self.pcs = pcs.to(dtype=dtype, device=device)
+        self.tcs = tcs.to(dtype=dtype, device=device)
+        self.omegas = omegas.to(dtype=dtype, device=device)
+        self.flasher = PTFlash(
+            pcs, tcs, omegas, kij, kijt, kijt2, cubic_solver, dtype, device
+        )
+        self.dtype = dtype
+        self.device = device
+
+    def init_ki(self, inputs):
+        """
+        Initialize ki using:
+            (1) Wilson approximation if `init_engine` is wilson
+            (2) neural network (initializer) if `init_engine` is nn
+        """
+
+        part1 = torch.log(self.pcs / inputs[:, :1])
+        part2 = 5.373 * (1 + self.omegas) * (1 - self.tcs / inputs[:, 1:2])
+        lnki = part1 + part2
+
+        return lnki.exp()
+
+    def __call__(
+        self,
+        inputs,
+        ki
+    ):
+        """
+        Run complete flash calculation for vapour-liquid equilibrium
+
+        Parameters
+        ----------
+        inputs: array_like
+            The first column is the pressure, the second is the temperature, and the others
+            are the composition.
+
+        ki: array_like, default=None
+            Initial distribution coefficients. If not passed, call `init_ki` to initialize it.
+
+        init_engine: str, default="wilson"
+            The method for initializing distribution coefficients, which is "nn" or "wilson".
+
+        initializer: module of pytorch, default=None
+            A neural network used to initialize distribution coefficients ki.
+
+        classifier: module of pytorch, default=None
+            A neural network used to predict the stability of given mixtures.
+            Note that the output of `classifier` should be logit and use sigmoid to get probabilities.
+
+        threshold: tuple of floats, default=(0.05, 0.95)
+            (pl, pr), thresholds for instability and stability. If p >= pr, the mixture is predicted as
+            stable. If p <= pl, the mixture is unstable. If pl < p < pr, run stability analysis.
+
+        sa_max_nit1: int, default=15
+            Max number of iterations of successive substitution of stability analysis.
+
+        sa_max_nit2: int, default=40
+            Max number of iterations of second-order method of stability analysis.
+
+        split_max_nit1: int, default=15
+            Max number of iterations of successive substitution of phase split calculations.
+
+        split_max_nit2: int, default=40
+            Max number of iterations of second-order method of phase split calculations.
+
+        async_analysis: bool, default=False
+            If True, run stability analysis using vapour and liquid-like estimates in parallel.
+            If False, run them in sequence.
+
+        debug: bool, default=False
+            If True, print the process results for debugging.
+        """
+        #threshold = (0.05, 0.95)
+        # if classifier is given, use it to predict stability
+
+        # if classifier is not given, first try `negative_tpd_detector`
+        lnphis = self.flasher.eos(inputs)[0]
+
+        stable, ki = negative_tpd_detector(
+            self.flasher, inputs, ki, lnphis, max_nit=3
+        )
+        #print("STABLE",stable)
+        sa_indices = torch.where(stable)[0]
+        #print("INDICES NUMEL",sa_indices.numel())
+        sa_inputs = inputs[sa_indices]
+
+        # extract samples used to run stability analysis
+        #print("INDICES NUMEL",sa_indices.numel())
         if sa_indices.numel() > 0:
             sa_ki = ki[sa_indices]
             if lnphis is None:
