@@ -21,6 +21,25 @@ using namespace carnot ;
 //#define USE_CARNOT_V9
 #define USE_CARNOT_V10
 #endif
+
+#ifdef USE_ONNX
+#include <onnxruntime/core/session/onnxruntime_cxx_api.h>
+#endif
+
+#ifdef USE_TENSORRT
+#include "utils/argsParser.h"
+#include "utils/buffers.h"
+#include "utils/common.h"
+#include "utils/logger.h"
+#include "utils/parserOnnxConfig.h"
+#include "NvInfer.h"
+
+using namespace nvinfer1;
+using samplesCommon::SampleUniquePtr;
+
+#include "tensorrt/TRTEngine.h"
+#endif
+
 #include "utils/PerfCounterMng.h"
 #include "PTFlash.h"
 
@@ -230,6 +249,170 @@ PTFlash::initCarnot(std::string const& carnot_bank_path,
   m_perf_mng.init("Carnot::End") ;
 }
 
+void PTFlash::_endComputeCarnot() const
+{
+#ifdef USE_CARNOT
+  m_perf_mng.start("Carnot::Prepare") ;
+  auto nb_components       = m_carnot_internal->nbComponents() ;
+  std::size_t offset = 0 ;
+  std::size_t unstable_offset = 0 ;
+  m_current_index = 0 ;
+  m_current_unstable_index = 0 ;
+  m_unstable.resize(m_batch_size) ;
+  m_theta_v.resize(m_batch_size) ;
+  m_xi.resize(m_batch_size*nb_components) ;
+  m_yi.resize(m_batch_size*nb_components) ;
+  m_ki.resize(m_batch_size*nb_components) ;
+  m_perf_mng.stop("Carnot::Prepare") ;
+
+  for(std::size_t i=0;i<m_batch_size;++i)
+  {
+   m_perf_mng.start("Carnot::Prepare") ;
+   // set pressure
+   m_carnot_internal->setPropertyAsDouble(eProperty::Pressure, m_x[offset]);
+
+   // set  temperature
+   m_carnot_internal->setPropertyAsDouble(eProperty::Temperature, m_x[offset+1]);
+
+   // set composition on the fluid
+   m_carnot_internal->setComposition(&m_x[offset+2]);
+   m_perf_mng.stop("Carnot::Prepare") ;
+   //
+   // COMPUTE PT flash
+
+
+   if(m_output_level>0)
+   {
+     std::cout<<i<<" [P, T, Z ] : "<<std::setprecision(16)<<m_x[offset]<<" "<< m_x[offset+1]<<" [";
+     for(int ic=0;ic<nb_components;++ic)
+      std::cout<<m_x[offset+2+ic]<< (ic==nb_components-1?"]":" ");
+     std::cout<<std::endl ;
+   }
+
+   m_perf_mng.start("Carnot::Compute") ;
+   auto res = m_carnot_internal->computeEquilibrium(eEquilibrium::PT);
+   m_perf_mng.stop("Carnot::Compute") ;
+
+   m_perf_mng.start("Carnot::End") ;
+   double theta    = NAN ;
+   double thetaLiq = NAN ;
+   double thetaVap = NAN ;
+   //unsigned int nb_phases = 0 ;
+
+   if (res.get() != nullptr)
+   {
+      //theta = res->getTheta();
+      theta = res->getPropertyAsDouble(eProperty::Theta) ;
+    }
+
+   m_unstable[m_current_index] = false ;
+
+   auto allFluids = res->getFluids();
+
+   if (theta > 0.0 && theta < 1.)
+   { // two-phase fluid
+     m_unstable[m_current_index] = true ;
+     m_theta_v[m_current_unstable_index] =  theta ;
+
+     //auto fluidLiq = IEquilibriumResult::getSharedLiquidOutput(res);
+     //auto fluidVap = IEquilibriumResult::getSharedVaporOutput(res);
+     //std::vector<double> compoLiq = fluidLiq->getComposition();
+     //std::vector<double> compoVap = fluidVap->getComposition();
+#ifdef USE_CARNOT_V9
+     try {
+        auto fluidLiq = res->getFluid(eFluidState::Liquid);
+        thetaLiq = fluidLiq->getNbMoles() ;
+
+        std::vector<double> compoLiq = fluidLiq->getComposition();
+        for(int ic=0;ic<nb_components;++ic)
+         {
+           m_xi[unstable_offset+ic] = compoLiq[ic] ;
+         }
+     }
+     catch(std::exception exc)
+     {
+        std::cout<<"LIQUID EXCEPTION :"<<exc.what()<<std::endl ;
+     }
+
+     try {
+        auto fluidVap = res->getFluid(eFluidState::Vapour);
+        thetaVap = fluidVap->getNbMoles() ;
+        std::vector<double> compoVap = fluidVap->getComposition();
+        for(int ic=0;ic<nb_components;++ic)
+         {
+           m_yi[unstable_offset+ic] = compoVap[ic] ;
+         }
+     }
+     catch(std::exception exc)
+     {
+        std::cout<<"VAP EXCEPTION :"<<exc.what()<<std::endl ;
+     }
+#endif
+#ifdef USE_CARNOT_V10
+     //auto fluidLiq = res->getFluid(eFluidState::Liquid);
+     //auto fluidVap = res->getFluid(eFluidState::Vapour);
+     //auto fluidLiq = allFluids[carnot::eFluidState::Liquid];
+     //auto fluidVap = allFluids[carnot::eFluidState::Vapour];
+
+     assert(allFluids.size()==2) ;
+     auto fluidLiq = allFluids[0]->getState() == carnot::eFluidState::Liquid?allFluids[0]:allFluids[1] ;
+     auto fluidVap = allFluids[0]->getState() == carnot::eFluidState::Liquid?allFluids[1]:allFluids[0] ;
+
+     thetaLiq = fluidLiq->getNbMoles() ;
+     thetaVap = fluidVap->getNbMoles() ;
+
+     std::vector<double> compoLiq = fluidLiq->getComposition();
+     std::vector<double> compoVap = fluidVap->getComposition();
+     for(int ic=0;ic<nb_components;++ic)
+     {
+      m_xi[unstable_offset+ic] = compoLiq[ic] ;
+      m_yi[unstable_offset+ic] = compoVap[ic] ;
+     }
+#endif
+     ++m_current_unstable_index ;
+     unstable_offset += nb_components ;
+   }
+   else
+   {
+     if (theta == 1.)
+     {
+      //auto fluidVap = res->getFluid(eFluidState::Vapour);
+      //auto fluidVap = allFluids[carnot::eFluidState::Vapour];
+      assert(allFluids.size()==1) ;
+      auto fluidVap = allFluids[0];
+      thetaVap = fluidVap->getNbMoles() ;
+      std::vector<double> compoVap = fluidVap->getComposition();
+      for(int ic=0;ic<nb_components;++ic)
+      {
+        m_yi[unstable_offset+ic] = compoVap[ic] ;
+      }
+     }
+     if (theta == 0.)
+     {
+      //auto fluidLiq = res->getFluid(eFluidState::Liquid);
+      //auto fluidLiq = allFluids[carnot::eFluidState::Liquid];
+      auto fluidLiq = allFluids[0];
+      thetaLiq = fluidLiq->getNbMoles() ;
+      std::vector<double> compoLiq = fluidLiq->getComposition();
+      for(int ic=0;ic<nb_components;++ic)
+      {
+        m_xi[unstable_offset+ic] = compoLiq[ic] ;
+      }
+     }
+   }
+   if(m_output_level>0)
+   {
+     std::cout<<"THETA    ["<<i<<"]="<<theta<<" "<<thetaLiq<<" "<<thetaVap<<std::endl ;
+     std::cout<<"THETA LIQ["<<i<<"]="<<thetaLiq<<std::endl ;
+     std::cout<<"THETA VAP["<<i<<"]="<<thetaVap<<std::endl ;
+   }
+   m_perf_mng.stop("Carnot::End") ;
+
+   offset += m_tensor_size ;
+   ++ m_current_index ;
+  }
+#endif
+}
 
 void
 PTFlash::initCAWF(std::string const& ptflash_model_path,
@@ -254,15 +437,463 @@ PTFlash::initCAWF(std::string const& ptflash_model_path,
   m_perf_mng.init("CAWF::End") ;
 }
 
+void PTFlash::_endComputeCAWF() const
+{
+#ifdef USE_CAWFINFERENCE
+    m_perf_mng.start("CAWF::Prepare") ;
+    cawf_inference::CAWFInferenceMng::Input input;
+    int dims[2] = { m_batch_size, m_tensor_size } ;
+    input.setDoubleTensorDims(2,dims) ;
+    input.addDoubleBufferValues(m_x.data(),m_x.size()) ;
+    cawf_inference::CAWFInferenceMng::Output output;
+    m_perf_mng.stop("CAWF::Prepare") ;
+
+
+    m_perf_mng.start("CAWF::Compute") ;
+    m_cawf_inference_mng.evalDNN(input,output) ;
+    m_perf_mng.stop("CAWF::Compute") ;
+
+
+    m_perf_mng.start("CAWF::End") ;
+    {
+      assert(output.nbBoolBuffer()==1) ;
+      {
+        int ndim = output.getBoolTensorNbDims(m_unstable_id) ;
+        assert(ndim == 1) ;
+        std::vector<int> dims(ndim) ;
+        output.getBoolTensorDims(m_unstable_id,dims.data(),ndim) ;
+        assert(dims[0] == m_batch_size) ;
+        assert(output.getBoolBufferSize(m_unstable_id)==m_batch_size) ;
+        m_unstable.resize(dims[0]) ;
+        output.getBoolBufferValues(m_unstable_id,m_unstable,m_batch_size) ;
+      }
+
+      assert(output.nbDoubleBuffer()==4) ;
+      {
+        std::size_t nb_unstable_compo = 0 ;
+        {
+          int ndim = output.getDoubleTensorNbDims(m_theta_v_id) ;
+          assert(ndim == 2) ;
+          std::vector<int> dims(ndim) ;
+          output.getDoubleTensorDims(m_theta_v_id,dims.data(),ndim) ;
+          nb_unstable_compo = dims[0] ;
+          assert(dims[1] == 1) ;
+          m_theta_v.resize(nb_unstable_compo) ;
+          assert(output.getDoubleBufferSize(m_theta_v_id) == nb_unstable_compo) ;
+          output.getDoubleBufferValues(m_theta_v_id,m_theta_v.data(),nb_unstable_compo) ;
+        }
+        {
+          int ndim = output.getDoubleTensorNbDims(m_xi_id) ;
+          assert(ndim == 2) ;
+          std::vector<int> dims(ndim) ;
+          output.getDoubleTensorDims(m_xi_id,dims.data(),2) ;
+          assert(nb_unstable_compo == dims[0]) ;
+          std::size_t tensor_size = dims[0]*dims[1] ;
+          m_xi.resize(tensor_size) ;
+          assert(output.getDoubleBufferSize(m_xi_id) == tensor_size) ;
+          output.getDoubleBufferValues(m_xi_id,m_xi.data(),tensor_size) ;
+        }
+        {
+          int ndim = output.getDoubleTensorNbDims(m_yi_id) ;
+          assert(ndim == 2) ;
+          std::vector<int> dims(2) ;
+          output.getDoubleTensorDims(m_yi_id,dims.data(),2) ;
+          assert(nb_unstable_compo == dims[0]) ;
+          std::size_t tensor_size = dims[0]*dims[1] ;
+          m_yi.resize(tensor_size) ;
+          assert(output.getDoubleBufferSize(m_yi_id) == tensor_size) ;
+          output.getDoubleBufferValues(m_yi_id,m_yi.data(),tensor_size) ;
+        }
+        {
+          int ndim = output.getDoubleTensorNbDims(m_ki_id) ;
+          assert(ndim == 2) ;
+          std::vector<int> dims(2) ;
+          output.getDoubleTensorDims(m_ki_id,dims.data(),2) ;
+          assert(nb_unstable_compo == dims[0]) ;
+          std::size_t tensor_size = dims[0]*dims[1] ;
+          m_ki.resize(tensor_size) ;
+          output.getDoubleBufferValues(m_ki_id,m_ki.data(),tensor_size) ;
+
+        }
+      }
+    }
+    m_perf_mng.stop("CAWF::Compute") ;
+#endif
+}
+
+struct PTFlash::ONNXInternal
+{
+  ONNXInternal()
+#ifdef USE_ONNX
+: m_environment(OrtLoggingLevel::ORT_LOGGING_LEVEL_WARNING)
+#endif
+  {}
+
+#ifdef USE_ONNX
+    Ort::Env m_environment;
+    std::unique_ptr<Ort::Session> m_classifier_session;
+    std::unique_ptr<Ort::Session> m_initializer_session;
+#endif
+} ;
+
+void
+PTFlash::initONNX(std::string const& classifier_model_path,
+                  std::string const& initializer_model_path,
+                  eModelDNNType model,
+                  int num_phase,
+                  int num_compo)
+{
+  m_num_phase = num_phase ;
+  m_num_compo = num_compo ;
+
+  m_perf_mng.init("ONNX::Init") ;
+  m_perf_mng.init("ONNX::Prepare") ;
+  m_perf_mng.init("ONNX::Compute") ;
+  m_perf_mng.init("ONNX::End") ;
+
+#ifdef USE_ONNX
+  m_onnx_internal = new ONNXInternal() ;
+  m_use_onnx = true ;
+
+  m_perf_mng.start("ONNX::Prepare") ;
+  Ort::SessionOptions session_options;
+  session_options.SetIntraOpNumThreads(1);
+  session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_EXTENDED);
+  // onnx session:
+  //std::string classifier_onnx_file_name(classifier_model_path.localstr());
+  switch(model)
+  {
+  case Classifier :
+     m_classifier_model_path = classifier_model_path ;
+     std::cout<<"ONNX INITIALIZING CLASSIFIER SESSION : "<<m_classifier_model_path<<std::endl ;
+     m_onnx_internal->m_classifier_session = std::make_unique<Ort::Session>(m_onnx_internal->m_environment, m_classifier_model_path.c_str(), session_options);
+     std::cout<<"ONNX Classifier Session OK"<<std::endl;
+     break ;
+  case Initializer :
+     m_initializer_model_path = initializer_model_path ;
+     std::cout<<"ONNX INITIALIZING INITIALIZER SESSION : "<<m_initializer_model_path<<std::endl ;
+     m_onnx_internal->m_initializer_session = std::make_unique<Ort::Session>(m_onnx_internal->m_environment, m_initializer_model_path.c_str(), session_options);
+     std::cout<<"ONNX Initialize Session OK"<<std::endl;
+     break ;
+  case FullClassInit :
+     m_classifier_model_path = classifier_model_path ;
+     std::cout<<"ONNX INITIALIZING CLASSIFIER SESSION : "<<m_classifier_model_path<<std::endl ;
+     m_onnx_internal->m_classifier_session = std::make_unique<Ort::Session>(m_onnx_internal->m_environment, m_classifier_model_path.c_str(), session_options);
+     std::cout<<"ONNX Classifier Session OK"<<std::endl;
+     m_initializer_model_path = initializer_model_path ;
+     std::cout<<"ONNX INITIALIZING INITIALIZER SESSION : "<<m_initializer_model_path<<std::endl ;
+     m_onnx_internal->m_initializer_session = std::make_unique<Ort::Session>(m_onnx_internal->m_environment, m_initializer_model_path.c_str(), session_options);
+     std::cout<<"ONNX Initialize Session OK"<<std::endl;
+  }
+
+  m_perf_mng.stop("ONNX::Prepare") ;
+  // onnx session:
+  //std::string initializer_onnx_file_name(initializer_model_path.localstr());
+#endif
+}
+
+void PTFlash::_endComputeONNX() const
+{
+#ifdef USE_ONNX
+  std::cout<<" COMPUTE ONNX"<<std::endl ;
+  m_perf_mng.start("ONNX::Compute") ;
+
+  // onnx tensors:
+  Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
+
+  // input:
+  std::vector<Ort::Value> input_tensors;
+  Ort::TypeInfo input_type_info = m_onnx_internal->m_classifier_session->GetInputTypeInfo(0);
+  auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
+  std::vector<int64_t> input_dims = input_tensor_info.GetShape();
+  // batch size
+  input_dims[0]=m_batch_size;
+  input_tensors.push_back(Ort::Value::CreateTensor<float>(memory_info, const_cast<float*>(m_xf.data()),
+                                                          m_xf.size(), input_dims.data(), input_dims.size()));
+
+  // output:
+  std::vector<Ort::Value> output_tensors;
+  Ort::TypeInfo output_type_info = m_onnx_internal->m_classifier_session->GetOutputTypeInfo(0);
+  auto output_tensor_info = output_type_info.GetTensorTypeAndShapeInfo();
+  std::vector<int64_t> output_dims = output_tensor_info.GetShape();
+
+  // batch size
+  output_dims[0]=m_batch_size;
+  output_tensors.push_back(Ort::Value::CreateTensor<float>(memory_info,
+                                                           m_yf.data(),
+                                                           m_yf.size(),
+                                                           output_dims.data(), output_dims.size()));
+
+  // serving names:
+  std::string input_name = m_onnx_internal->m_classifier_session->GetInputNameAllocated(0, Ort::AllocatorWithDefaultOptions()).get();
+  std::vector<const char*>  input_names{input_name.c_str()};
+  std::string output_name = m_onnx_internal->m_classifier_session->GetOutputNameAllocated(0, Ort::AllocatorWithDefaultOptions()).get();
+  std::vector<const char*> output_names{output_name.c_str()};
+
+  std::cout<<" ONNX CLASSIFIER MODEL INFERENCE"<<std::endl ;
+ // model inference
+  m_onnx_internal->m_classifier_session->Run(Ort::RunOptions{nullptr},
+                                             input_names.data(),
+                                             input_tensors.data(), 1, output_names.data(),
+                                             output_tensors.data(), 1);
+
+  std::cout<<"onnx inference classifier ok"<<std::endl;
+
+  m_current_index = 0 ;
+  m_current_unstable_index = 0 ;
+  m_unstable.resize(m_batch_size) ;
+  m_theta_v.resize(m_batch_size) ;
+  m_xi.resize(m_batch_size*m_num_compo) ;
+  m_yi.resize(m_batch_size*m_num_compo) ;
+  m_ki.resize(m_batch_size*m_num_compo) ;
+
+  bool compute_ki = m_onnx_internal->m_initializer_session.get() != nullptr ;
+  if(compute_ki)
+  {
+    m_xf2.resize(m_tensor_size*m_batch_size) ;
+  }
+  int offset = 0 ;
+  int unstable_offset = 0 ;
+  int nb_unstable = 0 ;
+  for(std::size_t i=0;i<m_batch_size;++i)
+  {
+      double prob = 1./(1+std::exp(-m_yf[i])) ;
+      m_unstable[i] = prob > 0.5 ;
+      //std::cout<<"UNSTABLE["<<i<<"]"<<m_unstable[i]<<" "<<prob<<" "<<m_yf[i]<<std::endl ;
+
+      if(compute_ki && m_unstable[i])
+      {
+          for(int j=0;j<m_tensor_size;++j)
+            m_xf2[unstable_offset+j] = m_xf[offset+j] ;
+          unstable_offset += m_tensor_size ;
+          ++ nb_unstable ;
+      }
+      offset += m_tensor_size ;
+  }
+
+  std::cout<<" ONNX INITIALIZER MODEL INFERENCE"<<compute_ki<<" "<<nb_unstable<<std::endl ;
+  if(compute_ki && nb_unstable>0)
+  {
+      m_yf2.resize(nb_unstable*m_num_compo) ;
+      // input:
+      std::vector<Ort::Value> input_tensors;
+      Ort::TypeInfo input_type_info = m_onnx_internal->m_initializer_session->GetInputTypeInfo(0);
+      auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
+      std::vector<int64_t> input_dims = input_tensor_info.GetShape();
+      // batch size
+      input_dims[0]=nb_unstable;
+      input_tensors.push_back(Ort::Value::CreateTensor<float>(memory_info, const_cast<float*>(m_xf2.data()),
+                                                              m_xf2.size(), input_dims.data(), input_dims.size()));
+
+      // output:
+      std::vector<Ort::Value> output_tensors;
+      Ort::TypeInfo output_type_info = m_onnx_internal->m_initializer_session->GetOutputTypeInfo(0);
+      auto output_tensor_info = output_type_info.GetTensorTypeAndShapeInfo();
+      std::vector<int64_t> output_dims = output_tensor_info.GetShape();
+
+      // batch size
+      output_dims[0]=nb_unstable;
+      output_tensors.push_back(Ort::Value::CreateTensor<float>(memory_info,
+                                                               m_yf2.data(),
+                                                               m_yf2.size(),
+                                                               output_dims.data(), output_dims.size()));
+
+      // serving names:
+      std::string input_name = m_onnx_internal->m_initializer_session->GetInputNameAllocated(0, Ort::AllocatorWithDefaultOptions()).get();
+      std::vector<const char*>  input_names{input_name.c_str()};
+      std::string output_name = m_onnx_internal->m_initializer_session->GetOutputNameAllocated(0, Ort::AllocatorWithDefaultOptions()).get();
+      std::vector<const char*> output_names{output_name.c_str()};
+
+      std::cout<<" ONNX INITIALIZER MODEL INFERENCE"<<std::endl ;
+     // model inference
+      m_onnx_internal->m_initializer_session->Run(Ort::RunOptions{nullptr},
+                                                 input_names.data(),
+                                                 input_tensors.data(), 1, output_names.data(),
+                                                 output_tensors.data(), 1);
+
+      std::cout<<"onnx inference initializer ok"<<std::endl;
+
+      for(std::size_t i=0;i<nb_unstable*m_num_compo;++i)
+      {
+        m_ki[i] = m_yf2[i] ;
+      }
+      std::cout<<"==================================================="<<std::endl ;
+      std::cout<<"KI OUTPUT : "<<std::endl ;
+      int offset = 0 ;
+      for(int i = 0;i<nb_unstable;++i)
+      {
+         std::cout<<"KI["<<i<<"] : (";
+         for(int j=0;j<m_num_compo;++j)
+         {
+           std::cout<<m_ki[offset+j]<<",";
+         }
+         offset += m_num_compo ;
+         std::cout<<")"<<std::endl ;
+      }
+  }
+  m_perf_mng.stop("ONNX::Compute") ;
+#else
+  std::cerr<<"ERROR : ONNX RUNTIME IS NOT AVAILABLE"<<std::endl ;
+#endif
+
+}
+
+struct PTFlash::TensorRTInternal
+{
+  std::unique_ptr<TRTEngine> m_classifier_engine ;
+  std::unique_ptr<TRTEngine> m_initializer_engine ;
+} ;
+
+
+void
+PTFlash::initTensorRT(std::string const& classifier_model_path,
+                      std::string const& initializer_model_path,
+                      PTFlash::eModelDNNType model,
+                      int num_phase,
+                      int num_compo)
+{
+  m_num_phase = num_phase ;
+  m_num_compo = num_compo ;
+
+  m_classifier_model_path = classifier_model_path ;
+  m_initializer_model_path = initializer_model_path ;
+
+  m_perf_mng.init("TensorRT::Init") ;
+  m_perf_mng.init("TensorRT::Prepare") ;
+  m_perf_mng.init("TensorRT::Compute") ;
+  m_perf_mng.init("TensorRT::End") ;
+#ifdef USE_TENSORRT
+  m_tensorrt_internal = new TensorRTInternal() ;
+  m_model_type = model ;
+  m_use_tensorrt = true ;
+#endif
+
+}
+
+
+void PTFlash::_endComputeTensorRT() const
+{
+#ifdef USE_TENSORRT
+    m_perf_mng.start("TensorRT::Compute") ;
+    bool infer_status = m_tensorrt_internal->m_classifier_engine->infer(m_xf,m_yf,m_batch_size) ;
+    if(!infer_status)
+    {
+        std::cerr<<"CLASSIFIER INFER FAILED"<<std::endl ;;
+    }
+    else
+    {
+          std::cerr<<"CLASSIFIER INFER OK"<<std::endl ;;
+          bool compute_ki = m_tensorrt_internal->m_initializer_engine.get() != nullptr ;
+          if(compute_ki)
+          {
+            m_xf2.resize(m_tensor_size*m_batch_size) ;
+          }
+          int offset = 0 ;
+          int unstable_offset = 0 ;
+          int nb_unstable = 0 ;
+
+          m_current_index = 0 ;
+          m_current_unstable_index = 0 ;
+          m_unstable.resize(m_batch_size) ;
+          m_theta_v.resize(m_batch_size) ;
+          m_xi.resize(m_batch_size*m_num_compo) ;
+          m_yi.resize(m_batch_size*m_num_compo) ;
+          m_ki.resize(m_batch_size*m_num_compo) ;
+
+          for(std::size_t i=0;i<m_batch_size;++i)
+          {
+              double prob = 1./(1+std::exp(-m_yf[i])) ;
+              m_unstable[i] = prob > 0.5 ;
+              if(compute_ki && m_unstable[i])
+              {
+                  for(int j=0;j<m_tensor_size;++j)
+                    m_xf2[unstable_offset+j] = m_xf[offset+j] ;
+                  unstable_offset += m_tensor_size ;
+                  ++ nb_unstable ;
+              }
+              offset += m_tensor_size ;
+          }
+
+          if(compute_ki && nb_unstable>0)
+          {
+              m_yf2.resize(nb_unstable*m_num_compo) ;
+              bool infer_status = m_tensorrt_internal->m_initializer_engine->infer(m_xf2,m_yf2,nb_unstable) ;
+              if(infer_status)
+              {
+                 std::cout<<"INITIALIZER INFER OK"<<std::endl ;
+                 for(std::size_t i=0;i<nb_unstable*m_num_compo;++i)
+                 {
+                   m_ki[i] = m_yf2[i] ;
+                 }
+                 std::cout<<"==================================================="<<std::endl ;
+                 std::cout<<"KI OUTPUT : "<<std::endl ;
+                 int offset = 0 ;
+                 for(int i = 0;i<nb_unstable;++i)
+                 {
+                    std::cout<<"KI["<<i<<"] : (";
+                    for(int j=0;j<m_num_compo;++j)
+                    {
+                      std::cout<<m_ki[offset+j]<<",";
+                    }
+                    offset += m_num_compo ;
+                    std::cout<<")"<<std::endl ;
+                 }
+              }
+              else
+              {
+                 std::cerr<<"INITIALIZER INFER FAILED"<<std::endl ;;
+              }
+          }
+    }
+    m_perf_mng.stop("TensorRT::Compute") ;
+#endif
+}
 
 void PTFlash::startCompute(int batch_size) const
 {
   m_batch_size = batch_size ;
   m_tensor_size = 2 + m_num_compo ;
-   m_x.resize(m_tensor_size*m_batch_size) ;
   m_offset = 0 ;
   m_current_index = 0 ;
   m_current_unstable_index = 0 ;
+  if(m_use_carnot)
+  {
+    m_x.resize(m_tensor_size*m_batch_size) ;
+  }
+  if(m_use_onnx)
+  {
+     m_xf.resize(m_tensor_size*m_batch_size) ;
+     m_yf.resize(m_batch_size) ;
+  }
+  if(m_use_tensorrt)
+  {
+     m_perf_mng.start("TensorRT::Prepare") ;
+     m_xf.resize(m_tensor_size*m_batch_size) ;
+     m_yf.resize(m_batch_size) ;
+#ifdef USE_TENSORRT
+     if(m_model_type == Classifier || m_model_type == FullClassInit)
+     {
+       std::cout<<"START TENSORRT CLASSIFIER BUILD"<<std::endl ;
+       m_tensorrt_internal->m_classifier_engine.reset( new TRTEngine(m_classifier_model_path,m_batch_size,m_tensor_size,1));
+       bool ok = m_tensorrt_internal->m_classifier_engine->build() ;
+       if(!ok)
+       {
+          std::cerr<<"CLASSIFIER BUILD FAILED"<<std::endl ;;
+       }
+     }
+     if(m_model_type == Initializer || m_model_type == FullClassInit)
+     {
+       std::cout<<"START TENSORRT INITIALIZER BUILD"<<std::endl ;
+       m_tensorrt_internal->m_initializer_engine.reset( new TRTEngine(m_initializer_model_path,m_batch_size,m_tensor_size,1));
+       bool ok = m_tensorrt_internal->m_initializer_engine->build() ;
+       if(!ok)
+       {
+          std::cerr<<"INITIALIZER BUILD FAILED"<<std::endl ;;
+       }
+     }
+#endif
+     m_perf_mng.stop("TensorRT::Prepare") ;
+  }
 }
 
 
@@ -271,6 +902,16 @@ void PTFlash::asynchCompute(const double P,
                            std::vector<double> const& Zk) const
 {
 
+  if(m_use_onnx || m_use_tensorrt)
+  {
+    m_xf[m_offset + 0] = P ;
+    m_xf[m_offset + 1] = T ;
+    for(int ic=0;ic<m_num_compo;++ic)
+    {
+      m_xf[m_offset + 2 + ic] = Zk[ic] ;
+    }
+  }
+  else
   {
     m_x[m_offset + 0] = P ;
     m_x[m_offset + 1] = T ;
@@ -290,257 +931,30 @@ void PTFlash::asynchCompute(const double P,
   */
 }
 
+
 void PTFlash::endCompute() const
 {
-#ifdef USE_CARNOT
+
   if(m_use_carnot)
-    {
-      m_perf_mng.start("Carnot::Prepare") ;
-      auto nb_components       = m_carnot_internal->nbComponents() ;
-      std::size_t offset = 0 ;
-      std::size_t unstable_offset = 0 ;
-      m_current_index = 0 ;
-      m_current_unstable_index = 0 ;
-      m_unstable.resize(m_batch_size) ;
-      m_theta_v.resize(m_batch_size) ;
-      m_xi.resize(m_batch_size*nb_components) ;
-      m_yi.resize(m_batch_size*nb_components) ;
-      m_ki.resize(m_batch_size*nb_components) ;
-      m_perf_mng.stop("Carnot::Prepare") ;
+  {
+    _endComputeCarnot() ;
+  }
 
-      for(std::size_t i=0;i<m_batch_size;++i)
-      {
-        m_perf_mng.start("Carnot::Prepare") ;
-        // set pressure
-        m_carnot_internal->setPropertyAsDouble(eProperty::Pressure, m_x[offset]);
-
-        // set  temperature
-        m_carnot_internal->setPropertyAsDouble(eProperty::Temperature, m_x[offset+1]);
-
-        // set composition on the fluid
-        m_carnot_internal->setComposition(&m_x[offset+2]);
-        m_perf_mng.stop("Carnot::Prepare") ;
-        //
-        // COMPUTE PT flash
-
-
-        if(m_output_level>0)
-        {
-          std::cout<<i<<" [P, T, Z ] : "<<std::setprecision(16)<<m_x[offset]<<" "<< m_x[offset+1]<<" [";
-          for(int ic=0;ic<nb_components;++ic)
-            std::cout<<m_x[offset+2+ic]<< (ic==nb_components-1?"]":" ");
-          std::cout<<std::endl ;
-        }
-
-        m_perf_mng.start("Carnot::Compute") ;
-        auto res = m_carnot_internal->computeEquilibrium(eEquilibrium::PT);
-        m_perf_mng.stop("Carnot::Compute") ;
-
-        m_perf_mng.start("Carnot::End") ;
-        double theta    = NAN ;
-        double thetaLiq = NAN ;
-        double thetaVap = NAN ;
-        //unsigned int nb_phases = 0 ;
-
-        if (res.get() != nullptr)
-        {
-           //theta = res->getTheta();
-           theta = res->getPropertyAsDouble(eProperty::Theta) ;
-         }
-
-        m_unstable[m_current_index] = false ;
-
-        auto allFluids = res->getFluids();
-
-        if (theta > 0.0 && theta < 1.)
-        { // two-phase fluid
-          m_unstable[m_current_index] = true ;
-          m_theta_v[m_current_unstable_index] =  theta ;
-
-          //auto fluidLiq = IEquilibriumResult::getSharedLiquidOutput(res);
-          //auto fluidVap = IEquilibriumResult::getSharedVaporOutput(res);
-          //std::vector<double> compoLiq = fluidLiq->getComposition();
-          //std::vector<double> compoVap = fluidVap->getComposition();
-#ifdef USE_CARNOT_V9
-          try {
-              auto fluidLiq = res->getFluid(eFluidState::Liquid);
-              thetaLiq = fluidLiq->getNbMoles() ;
-
-              std::vector<double> compoLiq = fluidLiq->getComposition();
-              for(int ic=0;ic<nb_components;++ic)
-                {
-                  m_xi[unstable_offset+ic] = compoLiq[ic] ;
-                }
-          }
-          catch(std::exception exc)
-          {
-              std::cout<<"LIQUID EXCEPTION :"<<exc.what()<<std::endl ;
-          }
-
-          try {
-              auto fluidVap = res->getFluid(eFluidState::Vapour);
-              thetaVap = fluidVap->getNbMoles() ;
-              std::vector<double> compoVap = fluidVap->getComposition();
-              for(int ic=0;ic<nb_components;++ic)
-                {
-                  m_yi[unstable_offset+ic] = compoVap[ic] ;
-                }
-          }
-          catch(std::exception exc)
-          {
-              std::cout<<"VAP EXCEPTION :"<<exc.what()<<std::endl ;
-          }
-#endif
-#ifdef USE_CARNOT_V10
-          //auto fluidLiq = res->getFluid(eFluidState::Liquid);
-          //auto fluidVap = res->getFluid(eFluidState::Vapour);
-          //auto fluidLiq = allFluids[carnot::eFluidState::Liquid];
-          //auto fluidVap = allFluids[carnot::eFluidState::Vapour];
-
-          assert(all_fluids.size()==2) ;
-          auto fluidLiq = allFluids[0]->getState() == carnot::eFluidState::Liquid?allFluids[0]:allFluids[1] ;
-          auto fluidVap = allFluids[0]->getState() == carnot::eFluidState::Liquid?allFluids[1]:allFluids[0] ;
-
-          thetaLiq = fluidLiq->getNbMoles() ;
-          thetaVap = fluidVap->getNbMoles() ;
-
-          std::vector<double> compoLiq = fluidLiq->getComposition();
-          std::vector<double> compoVap = fluidVap->getComposition();
-          for(int ic=0;ic<nb_components;++ic)
-          {
-            m_xi[unstable_offset+ic] = compoLiq[ic] ;
-            m_yi[unstable_offset+ic] = compoVap[ic] ;
-          }
-#endif
-          ++m_current_unstable_index ;
-          unstable_offset += nb_components ;
-        }
-        else
-        {
-          if (theta == 1.)
-          {
-            //auto fluidVap = res->getFluid(eFluidState::Vapour);
-            //auto fluidVap = allFluids[carnot::eFluidState::Vapour];
-            assert(all_fluids.size()==1) ;
-            auto fluidVap = allFluids[0];
-            thetaVap = fluidVap->getNbMoles() ;
-            std::vector<double> compoVap = fluidVap->getComposition();
-            for(int ic=0;ic<nb_components;++ic)
-            {
-              m_yi[unstable_offset+ic] = compoVap[ic] ;
-            }
-          }
-          if (theta == 0.)
-          {
-            //auto fluidLiq = res->getFluid(eFluidState::Liquid);
-            //auto fluidLiq = allFluids[carnot::eFluidState::Liquid];
-            auto fluidLiq = allFluids[0];
-            thetaLiq = fluidLiq->getNbMoles() ;
-            std::vector<double> compoLiq = fluidLiq->getComposition();
-            for(int ic=0;ic<nb_components;++ic)
-            {
-              m_xi[unstable_offset+ic] = compoLiq[ic] ;
-            }
-          }
-        }
-        if(m_output_level>0)
-        {
-          std::cout<<"THETA    ["<<i<<"]="<<theta<<" "<<thetaLiq<<" "<<thetaVap<<std::endl ;
-          std::cout<<"THETA LIQ["<<i<<"]="<<thetaLiq<<std::endl ;
-          std::cout<<"THETA VAP["<<i<<"]="<<thetaVap<<std::endl ;
-        }
-        m_perf_mng.stop("Carnot::End") ;
-
-        offset += m_tensor_size ;
-        ++ m_current_index ;
-      }
-    }
-#endif
-
-#ifdef USE_CAWFINFERENCE
   if(m_use_cawf_inference)
-    {
+  {
+    _endComputeCAWF() ;
+  }
 
-      m_perf_mng.start("CAWF::Prepare") ;
-      cawf_inference::CAWFInferenceMng::Input input;
-      int dims[2] = { m_batch_size, m_tensor_size } ;
-      input.setDoubleTensorDims(2,dims) ;
-      input.addDoubleBufferValues(m_x.data(),m_x.size()) ;
-      cawf_inference::CAWFInferenceMng::Output output;
-      m_perf_mng.stop("CAWF::Prepare") ;
+  if(m_use_onnx)
+  {
+     _endComputeONNX() ;
+  }
 
+  if(m_use_tensorrt)
+  {
+     _endComputeTensorRT() ;
+  }
 
-      m_perf_mng.start("CAWF::Compute") ;
-      m_cawf_inference_mng.evalDNN(input,output) ;
-      m_perf_mng.stop("CAWF::Compute") ;
-
-
-      m_perf_mng.start("CAWF::End") ;
-      {
-        assert(output.nbBoolBuffer()==1) ;
-        {
-          int ndim = output.getBoolTensorNbDims(m_unstable_id) ;
-          assert(ndim == 1) ;
-          std::vector<int> dims(ndim) ;
-          output.getBoolTensorDims(m_unstable_id,dims.data(),ndim) ;
-          assert(dims[0] == m_batch_size) ;
-          assert(output.getBoolBufferSize(m_unstable_id)==m_batch_size) ;
-          m_unstable.resize(dims[0]) ;
-          output.getBoolBufferValues(m_unstable_id,m_unstable,m_batch_size) ;
-        }
-
-        assert(output.nbDoubleBuffer()==4) ;
-        {
-          std::size_t nb_unstable_compo = 0 ;
-          {
-            int ndim = output.getDoubleTensorNbDims(m_theta_v_id) ;
-            assert(ndim == 2) ;
-            std::vector<int> dims(ndim) ;
-            output.getDoubleTensorDims(m_theta_v_id,dims.data(),ndim) ;
-            nb_unstable_compo = dims[0] ;
-            assert(dims[1] == 1) ;
-            m_theta_v.resize(nb_unstable_compo) ;
-            assert(output.getDoubleBufferSize(m_theta_v_id) == nb_unstable_compo) ;
-            output.getDoubleBufferValues(m_theta_v_id,m_theta_v.data(),nb_unstable_compo) ;
-          }
-          {
-            int ndim = output.getDoubleTensorNbDims(m_xi_id) ;
-            assert(ndim == 2) ;
-            std::vector<int> dims(ndim) ;
-            output.getDoubleTensorDims(m_xi_id,dims.data(),2) ;
-            assert(nb_unstable_compo == dims[0]) ;
-            std::size_t tensor_size = dims[0]*dims[1] ;
-            m_xi.resize(tensor_size) ;
-            assert(output.getDoubleBufferSize(m_xi_id) == tensor_size) ;
-            output.getDoubleBufferValues(m_xi_id,m_xi.data(),tensor_size) ;
-          }
-          {
-            int ndim = output.getDoubleTensorNbDims(m_yi_id) ;
-            assert(ndim == 2) ;
-            std::vector<int> dims(2) ;
-            output.getDoubleTensorDims(m_yi_id,dims.data(),2) ;
-            assert(nb_unstable_compo == dims[0]) ;
-            std::size_t tensor_size = dims[0]*dims[1] ;
-            m_yi.resize(tensor_size) ;
-            assert(output.getDoubleBufferSize(m_yi_id) == tensor_size) ;
-            output.getDoubleBufferValues(m_yi_id,m_yi.data(),tensor_size) ;
-          }
-          {
-            int ndim = output.getDoubleTensorNbDims(m_ki_id) ;
-            assert(ndim == 2) ;
-            std::vector<int> dims(2) ;
-            output.getDoubleTensorDims(m_ki_id,dims.data(),2) ;
-            assert(nb_unstable_compo == dims[0]) ;
-            std::size_t tensor_size = dims[0]*dims[1] ;
-            m_ki.resize(tensor_size) ;
-            output.getDoubleBufferValues(m_ki_id,m_ki.data(),tensor_size) ;
-
-          }
-        }
-      }
-      m_perf_mng.stop("CAWF::Compute") ;
-    }
-#endif
   m_perf_mng.printInfo();
 
   m_current_index = 0 ;

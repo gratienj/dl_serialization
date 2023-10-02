@@ -25,6 +25,8 @@ include(cmake/FindBoost.cmake)
 include(cmake/FindTorch.cmake)
 include(cmake/FindOpenCV.cmake)
 include(cmake/FindCarnot.cmake)
+include(cmake/FindONNX.cmake)
+include(cmake/FindTensorRT.cmake)
 include(cmake/FindCAWFInference.cmake)
 
 find_package(MPI REQUIRED)

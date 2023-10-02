@@ -13,11 +13,21 @@
 #include <cawf_inference/cawf_api.h>
 #endif
 
+
 class PTFlash
 {
 public:
 
     struct CarnotInternal ;
+    struct ONNXInternal ;
+    struct TensorRTInternal ;
+
+    typedef enum {
+        Classifier,
+        Initializer,
+        FullClassInit,
+        eUndefinedModel
+    } eModelDNNType ;
 
     PTFlash(int output_level=0)
     : m_output_level(output_level)
@@ -32,6 +42,18 @@ public:
                     int num_phase,
                     int num_compo) ;
 
+    void initONNX(std::string const& classifier_model_path,
+                  std::string const& initializer_model_path,
+                  eModelDNNType model,
+                  int num_phase,
+                  int num_compo) ;
+
+    void initTensorRT(std::string const& classifier_model_path,
+                      std::string const& initializer_model_path,
+                      eModelDNNType model,
+                      int num_phase,
+                      int num_compo) ;
+
     void end() ;
 
     void startCompute(int batch_size) const;
@@ -42,6 +64,11 @@ public:
     bool getNextResult(std::vector<double>& Thetap,
                        std::vector<double>& Xkp) const ;
 private:
+    void _endComputeCarnot() const ;
+    void _endComputeCAWF() const ;
+    void _endComputeONNX() const ;
+    void _endComputeTensorRT() const ;
+
     int m_output_level = 0 ;
     int m_num_phase    = 0 ;
     int m_num_compo    = 0 ;
@@ -49,10 +76,19 @@ private:
     bool            m_use_gpu             = false ;
     bool            m_use_cawf_inference  = false ;
     bool            m_use_carnot          = false ;
+    bool            m_use_onnx            = false ;
+    bool            m_use_tensorrt        = false ;
+
+
 #ifdef USE_CAWFINFERENCE
     mutable cawf_inference::CAWFInferenceMng m_cawf_inference_mng ;
 #endif
-    CarnotInternal* m_carnot_internal = nullptr ;
+    CarnotInternal*   m_carnot_internal   = nullptr ;
+    ONNXInternal*     m_onnx_internal     = nullptr ;
+    TensorRTInternal* m_tensorrt_internal = nullptr ;
+    std::string       m_classifier_model_path ;
+    std::string       m_initializer_model_path ;
+    eModelDNNType     m_model_type = eUndefinedModel ;
 
 
     mutable int64_t               m_batch_size             = 0 ;
@@ -69,6 +105,9 @@ private:
 
     mutable std::vector<double>   m_x ;
     mutable std::vector<float>    m_xf ;
+    mutable std::vector<float>    m_xf2 ;
+    mutable std::vector<float>    m_yf ;
+    mutable std::vector<float>    m_yf2 ;
     mutable std::vector<bool>     m_unstable ;
     mutable std::vector<double>   m_theta_v ;
     mutable std::vector<double>   m_xi ;

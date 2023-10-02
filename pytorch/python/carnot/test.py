@@ -593,7 +593,7 @@ if __name__ == "__main__":
                                   opset_version=15,  # the ONNX version to export the model to
                                   do_constant_folding=True,  # whether to execute constant folding for optimization
                                   input_names=['input','ki'],  # the model's input names
-                                  output_names=['unstable','theta_v','xi','yi','ski'],  # the model's output names
+                                  output_names=['unstable', 'theta_v', 'xi', 'yi', 'ski'],  # the model's output names
                                   dynamic_axes={'input': {0: 'batch_size'},
                                                 'ki': {0: 'batch_size'},
                                                 'unstable': {0: 'batch_size'},
@@ -608,8 +608,18 @@ if __name__ == "__main__":
 
                 if args.save_mode == "sjit":
                     print("JIT SCRIPT EXPORT MODEL")
+                    net.eval()
                     snet = torch.jit.script(net)
                     snet.save(f"ptflash_sjit_9comp_{n_samples}_{device}.pt")
+
+                if args.save_mode == "sjitopt":
+                    print("JIT SCRIPT OPT EXPORT MODEL")
+                    net.eval()
+                    torch._C._jit_set_profiling_executor(False)
+                    snet = torch.jit.script(net)
+                    model = torch.jit.freeze(snet)
+                    snet_opt = torch.jit.optimize_for_inference(snet)
+                    snet_opt.save(f"ptflash_sjitopt_9comp_{n_samples}_{device}.pt")
 
                 if args.save_mode == "tjit":
                     print("JIT SCRIPT EXPORT MODEL")
@@ -918,6 +928,28 @@ if __name__ == "__main__":
                     #data_id = (data_id+args.batch_size)%n_samples
 
                 print(f"TIME FOR TORCH SJIT INFERENCE FLASH :",[f"{time:.4f}" for time in times])
+
+        if save_mode == "sjitopt":
+            if args.use_ml == 0:
+                print("LOAD CARNOT MODEL FROM SJIT OPT PT FILE")
+                net = torch.jit.load(f'ptflash_sjitopt_9comp_{n_samples}_{device}.pt')
+                net.eval()
+
+                for i in range(3):
+                    inputs = torch.tensor(design.to_numpy()[0:1024, :], dtype=dtype, device=device)
+                    unstable, theta_v, xi, yi, ki = net(inputs)
+
+                times = []
+                for i in range(args.n_iter):
+                    inputs = torch.tensor(design.to_numpy()[data_id:data_id + args.batch_size, :], dtype=dtype,
+                                          device=device)
+                    start = default_timer()
+                    unstable, theta_v, xi, yi, ki = net(inputs)
+                    time = default_timer() - start
+                    times.append(time)
+                    # data_id = (data_id+args.batch_size)%n_samples
+
+                print(f"TIME FOR TORCH SJIT OPT INFERENCE FLASH :", [f"{time:.4f}" for time in times])
 
 
             if args.use_ml == 1:

@@ -45,7 +45,8 @@ int main(int argc, char **argv)
     ("output",          po::value<int>()->default_value(0), "output level")
     ("data-file",       po::value<std::string>(),           "data file path")
     ("result-file",     po::value<std::string>(),           "result file path")
-    ("model-file",      po::value<std::string>(),           "model file path") ;
+    ("model-file",      po::value<std::string>(),           "model file path")
+    ("model2-file",     po::value<std::string>()->default_value("undefined"),"model2 file path") ;
 
 
     po::variables_map vm;
@@ -79,9 +80,11 @@ int main(int argc, char **argv)
 
     if(vm["test-inference"].as<int>() > 0 )
     {
-       bool use_torch  = vm["model"].as<std::string>().compare("torch") == 0 ;
-       bool use_cawf   = vm["model"].as<std::string>().compare("cawf") == 0 ;
-       bool use_carnot = vm["model"].as<std::string>().compare("carnot") == 0 ;
+       bool use_torch    = vm["model"].as<std::string>().compare("torch") == 0 ;
+       bool use_cawf     = vm["model"].as<std::string>().compare("cawf") == 0 ;
+       bool use_carnot   = vm["model"].as<std::string>().compare("carnot") == 0 ;
+       bool use_onnx     = vm["model"].as<std::string>().compare("onnx") == 0 ;
+       bool use_tensorrt = vm["model"].as<std::string>().compare("tensorrt") == 0 ;
 
        std::string data_path = vm["data-file"].as<std::string>();
        auto data = cnpy::npy_load(data_path) ;
@@ -121,6 +124,7 @@ int main(int argc, char **argv)
        }
 
        std::string model_path = vm["model-file"].as<std::string>();
+       std::string model2_path = vm["model2-file"].as<std::string>();
        std::cout<<"TEST INFERENCE : "<<model_path<<std::endl ;
        std::vector<bool>     unstable ;
        std::vector<double>   theta_v ;
@@ -238,7 +242,30 @@ int main(int argc, char **argv)
            ptflash.initCarnot(model_path,2,nb_comp,comp_uids) ;
            ptflash.startCompute(batch_size) ;
        }
-       if(use_cawf || use_carnot)
+       if(use_onnx)
+       {
+           prepare_phase = "ONNX:Prepare" ;
+           compute_phase = "ONNX:Compute" ;
+
+             if(model2_path.compare("undefined")==0)
+               ptflash.initONNX(model_path,model2_path,PTFlash::Classifier,2,nb_comp) ;
+             else
+               ptflash.initONNX(model_path,model2_path,PTFlash::FullClassInit,2,nb_comp) ;
+
+           ptflash.startCompute(batch_size) ;
+       }
+       if(use_tensorrt)
+       {
+           prepare_phase = "TENSORRT:Prepare" ;
+           compute_phase = "TENSORRT:Compute" ;
+           if(model2_path.compare("undefined")==0)
+             ptflash.initTensorRT(model_path,model2_path,PTFlash::Classifier,2,nb_comp) ;
+           else
+             ptflash.initTensorRT(model_path,model2_path,PTFlash::FullClassInit,2,nb_comp) ;
+           ptflash.startCompute(batch_size) ;
+       }
+
+       if(use_cawf || use_carnot || use_onnx || use_tensorrt)
        {
            perf_mng.start(prepare_phase) ;
            for(int i=0;i<batch_size;++i)
