@@ -35,6 +35,7 @@ int main(int argc, char **argv)
     desc.add_options()
     ("help", "produce help message")
     ("use-gpu",         po::value<int>()->default_value(0), "use gpu option")
+    ("use-fp32",        po::value<int>()->default_value(0), "use fp32 option")
     ("test-load-model", po::value<int>()->default_value(0), "test load model")
     ("test-inference",  po::value<int>()->default_value(0), "test inference")
     ("test-carnot",     po::value<int>()->default_value(0), "test carnot")
@@ -59,6 +60,7 @@ int main(int argc, char **argv)
     }
 
     bool use_gpu = vm["use-gpu"].as<int>() == 1 ;
+    bool use_fp32 = vm["use-fp32"].as<int>() == 1 ;
 
     PerfCounterMng<std::string> perf_mng ;
     perf_mng.init("Torch:Prepare") ;
@@ -81,6 +83,7 @@ int main(int argc, char **argv)
     if(vm["test-inference"].as<int>() > 0 )
     {
        bool use_torch    = vm["model"].as<std::string>().compare("torch") == 0 ;
+       bool use_torch2   = vm["model"].as<std::string>().compare("torch2") == 0 ;
        bool use_cawf     = vm["model"].as<std::string>().compare("cawf") == 0 ;
        bool use_carnot   = vm["model"].as<std::string>().compare("carnot") == 0 ;
        bool use_onnx     = vm["model"].as<std::string>().compare("onnx") == 0 ;
@@ -212,25 +215,34 @@ int main(int argc, char **argv)
                  yi.assign(out.data_ptr<double>(),out.data_ptr<double>() + sizes[0]*sizes[1]);
              }
           }
-         {
-             auto out = outputs->elements()[4].toTensor().to(cpu_device);
-             torch::ArrayRef<int64_t> sizes = out.sizes();
-             std::cout<<"SIZES : "<<sizes[0]<<" "<<sizes[1]<<" "<<sizes.size()<<std::endl ;
-             if(sizes[0]>0)
-             {
-                 ki.resize(sizes[0]*sizes[1]) ;
-                 ki.assign(out.data_ptr<double>(),out.data_ptr<double>() + sizes[0]*sizes[1]);
-             }
-         }
+          {
+               auto out = outputs->elements()[4].toTensor().to(cpu_device);
+               torch::ArrayRef<int64_t> sizes = out.sizes();
+               std::cout<<"SIZES : "<<sizes[0]<<" "<<sizes[1]<<" "<<sizes.size()<<std::endl ;
+               if(sizes[0]>0)
+               {
+                   ki.resize(sizes[0]*sizes[1]) ;
+                   ki.assign(out.data_ptr<double>(),out.data_ptr<double>() + sizes[0]*sizes[1]);
+               }
+          }
+
        }
 
        PTFlash ptflash(vm["output"].as<int>()) ;
        std::string prepare_phase ;
        std::string compute_phase ;
+       std::string compute_phase0 ;
+       std::string compute_phase1 ;
+       std::string compute_phase2 ;
+       std::string compute_phase3 ;
        if(use_cawf)
        {
            prepare_phase = "CAWF:Prepare" ;
-           prepare_phase = "CAWF:Compute" ;
+           compute_phase = "CAWF:Compute" ;
+           compute_phase0 = "CAWF:Compute0" ;
+           compute_phase1 = "CAWF:Compute1" ;
+           compute_phase2 = "CAWF:Compute2" ;
+           compute_phase3 = "CAWF:Compute3" ;
            ptflash.initCAWF(model_path,2,nb_comp) ;
            ptflash.startCompute(batch_size) ;
        }
@@ -238,14 +250,39 @@ int main(int argc, char **argv)
        {
            prepare_phase = "CARNOT:Prepare" ;
            compute_phase = "CARNOT:Compute" ;
+           compute_phase0 = "CARNOT:Compute0" ;
+           compute_phase1 = "CARNOT:Compute1" ;
+           compute_phase2 = "CARNOT:Compute2" ;
+           compute_phase3 = "CARNOT:Compute3" ;
            std::vector<int> comp_uids = {74828, 74840, 74986, 106978, 109660, 110543, 100007, 124389, 7727379} ;
            ptflash.initCarnot(model_path,2,nb_comp,comp_uids) ;
+           ptflash.startCompute(batch_size) ;
+       }
+       if(use_torch2)
+       {
+         std::cout<<"TEST MODEL TORCH2"<<std::endl ;
+           prepare_phase = "Torch:Prepare" ;
+           compute_phase = "Torch:Compute" ;
+           compute_phase0 = "Torch:Compute0" ;
+           compute_phase1 = "Torch:Compute1" ;
+           compute_phase2 = "Torch:Compute2" ;
+           compute_phase3 = "Torch:Compute3" ;
+
+             if(model2_path.compare("undefined")==0)
+               ptflash.initTorch(model_path,model2_path,PTFlash::Classifier,2,nb_comp,use_gpu,use_fp32) ;
+             else
+               ptflash.initTorch(model_path,model2_path,PTFlash::FullClassInit,2,nb_comp,use_gpu,use_fp32) ;
+
            ptflash.startCompute(batch_size) ;
        }
        if(use_onnx)
        {
            prepare_phase = "ONNX:Prepare" ;
            compute_phase = "ONNX:Compute" ;
+           compute_phase0 = "ONNX:Compute0" ;
+           compute_phase1 = "ONNX:Compute1" ;
+           compute_phase2 = "ONNX:Compute2" ;
+           compute_phase3 = "ONNX:Compute3" ;
 
              if(model2_path.compare("undefined")==0)
                ptflash.initONNX(model_path,model2_path,PTFlash::Classifier,2,nb_comp) ;
@@ -258,6 +295,10 @@ int main(int argc, char **argv)
        {
            prepare_phase = "TENSORRT:Prepare" ;
            compute_phase = "TENSORRT:Compute" ;
+           compute_phase0 = "TENSORRT:Compute0" ;
+           compute_phase1 = "TENSORRT:Compute1" ;
+           compute_phase2 = "TENSORRT:Compute2" ;
+           compute_phase3 = "TENSORRT:Compute3" ;
            if(model2_path.compare("undefined")==0)
              ptflash.initTensorRT(model_path,model2_path,PTFlash::Classifier,2,nb_comp) ;
            else
@@ -265,7 +306,7 @@ int main(int argc, char **argv)
            ptflash.startCompute(batch_size) ;
        }
 
-       if(use_cawf || use_carnot || use_onnx || use_tensorrt)
+       if(use_cawf || use_carnot || use_onnx || use_tensorrt || use_torch2)
        {
            perf_mng.start(prepare_phase) ;
            for(int i=0;i<batch_size;++i)
@@ -286,6 +327,18 @@ int main(int argc, char **argv)
            }
            perf_mng.stop(prepare_phase) ;
 
+           perf_mng.start(compute_phase0) ;
+           ptflash.endCompute() ;
+           perf_mng.stop(compute_phase0) ;
+           perf_mng.start(compute_phase1) ;
+           ptflash.endCompute() ;
+           perf_mng.stop(compute_phase1) ;
+           perf_mng.start(compute_phase2) ;
+           ptflash.endCompute() ;
+           perf_mng.stop(compute_phase2) ;
+           perf_mng.start(compute_phase3) ;
+           ptflash.endCompute() ;
+           perf_mng.stop(compute_phase3) ;
            perf_mng.start(compute_phase) ;
            ptflash.endCompute() ;
            perf_mng.stop(compute_phase) ;

@@ -19,6 +19,7 @@ class PTFlash
 public:
 
     struct CarnotInternal ;
+    struct TorchInternal ;
     struct ONNXInternal ;
     struct TensorRTInternal ;
 
@@ -26,6 +27,7 @@ public:
         Classifier,
         Initializer,
         FullClassInit,
+        FullFlash,
         eUndefinedModel
     } eModelDNNType ;
 
@@ -39,8 +41,21 @@ public:
                     std::vector<int> const& component_uids) ;
 
     void initCAWF(std::string const& cawf_model_path,
-                    int num_phase,
-                    int num_compo) ;
+                  int num_phase,
+                  int num_compo) ;
+
+    void initTorch(std::string const& ptflash_model_path,
+                   int num_phase,
+                   int num_compo,
+                   bool use_gpu=false) ;
+
+    void initTorch(std::string const& classifier_model_path,
+                   std::string const& initializer_model_path,
+                   eModelDNNType model,
+                   int num_phase,
+                   int num_compo,
+                   bool use_gpu=false,
+                   bool use_fp32=false) ;
 
     void initONNX(std::string const& classifier_model_path,
                   std::string const& initializer_model_path,
@@ -66,6 +81,7 @@ public:
 private:
     void _endComputeCarnot() const ;
     void _endComputeCAWF() const ;
+    void _endComputeTorch() const ;
     void _endComputeONNX() const ;
     void _endComputeTensorRT() const ;
 
@@ -74,8 +90,10 @@ private:
     int m_num_compo    = 0 ;
 
     bool            m_use_gpu             = false ;
+    bool            m_use_fp32            = false ;
     bool            m_use_cawf_inference  = false ;
     bool            m_use_carnot          = false ;
+    bool            m_use_torch           = false ;
     bool            m_use_onnx            = false ;
     bool            m_use_tensorrt        = false ;
 
@@ -84,10 +102,12 @@ private:
     mutable cawf_inference::CAWFInferenceMng m_cawf_inference_mng ;
 #endif
     CarnotInternal*   m_carnot_internal   = nullptr ;
+    TorchInternal*    m_torch_internal    = nullptr ;
     ONNXInternal*     m_onnx_internal     = nullptr ;
     TensorRTInternal* m_tensorrt_internal = nullptr ;
     std::string       m_classifier_model_path ;
     std::string       m_initializer_model_path ;
+    std::string       m_flash_model_path ;
     eModelDNNType     m_model_type = eUndefinedModel ;
 
 
@@ -104,10 +124,12 @@ private:
     std::size_t const             m_ki_id       = 3 ;
 
     mutable std::vector<double>   m_x ;
+    mutable std::vector<double>   m_x2 ;
     mutable std::vector<float>    m_xf ;
-    mutable std::vector<float>    m_xf2 ;
+    mutable std::vector<float>    m_x2f ;
     mutable std::vector<float>    m_yf ;
-    mutable std::vector<float>    m_yf2 ;
+    mutable std::vector<float>    m_y2f ;
+
     mutable std::vector<bool>     m_unstable ;
     mutable std::vector<double>   m_theta_v ;
     mutable std::vector<double>   m_xi ;

@@ -16,6 +16,11 @@ if(NOT TORCH_FOUND)
    # pour limiter le mode verbose
   set(TORCH_FIND_QUIETLY ON)
   find_package(Torch)
+  if(TORCH_FOUND)
+    message(status "TORCH FOUND : INC ${TORCH_INCLUDE_DIR}")
+    message(status "TORCH FOUND : LIB ${TORCH_LIBRARY}")
+    add_definitions(-DUSE_TORCH)
+  endif()
 endif()
 
 if(NOT TORCH_FOUND)
@@ -55,6 +60,8 @@ find_package_handle_standard_args(TORCH
         TORCH_LIBRARY)
 
 if(TORCH_FOUND)
+  message(status "TORCH FOUND : INC ${TORCH_INCLUDE_DIR}")
+  message(status "TORCH FOUND : LIB ${TORCH_LIBRARY}")
   if(NOT TARGET torch)
 
     add_library(torch UNKNOWN IMPORTED)
@@ -69,6 +76,7 @@ if(TORCH_FOUND)
           INTERFACE_INCLUDE_DIRECTORIES "${TORCH_INCLUDE_DIRS}")
 
   endif()
+  add_definitions(-DUSE_TORCH)
 
 endif()
 
