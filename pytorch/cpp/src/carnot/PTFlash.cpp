@@ -578,15 +578,17 @@ PTFlash::initTorch(std::string const& classifier_model_path,
                    bool use_gpu,
                    bool use_fp32)
 {
-  m_use_gpu = use_gpu ;
-  m_num_phase = num_phase ;
-  m_num_compo = num_compo ;
-  m_use_torch = true ;
   m_classifier_model_path = classifier_model_path ;
   m_initializer_model_path = initializer_model_path ;
+  m_model_type = model ;
+  m_num_phase = num_phase ;
+  m_num_compo = num_compo ;
+  m_use_gpu = use_gpu ;
+  m_use_fp32 = use_fp32 ;
+  m_use_torch = true ;
 
   m_torch_internal = new TorchInternal() ;
-  switch(model)
+  switch(m_model_type)
   {
   case Classifier :
 #ifdef USE_TORCH
@@ -612,6 +614,11 @@ PTFlash::initTorch(std::string const& classifier_model_path,
     // Deserialize the ScriptModule from a file using torch::jit::load().
       std::cout<<"TRY TO LOAD CLASSIFIER MODEL : "<<initializer_model_path<<std::endl ;
       m_torch_internal->m_initializer_module = torch::jit::load(initializer_model_path);
+
+      torch::DeviceType device_type = m_use_gpu ? torch::kCUDA : torch::kCPU;
+      torch::Device device(device_type);
+      m_torch_internal->m_initializer_module.to(device);
+
       std::cout<<"Torch Initializer module is loaded"<<std::endl ;
     }
     catch (const c10::Error& e) {
@@ -625,6 +632,11 @@ PTFlash::initTorch(std::string const& classifier_model_path,
     // Deserialize the ScriptModule from a file using torch::jit::load().
       std::cout<<"TRY TO LOAD CLASSIFIER MODEL : "<<classifier_model_path<<std::endl ;
       m_torch_internal->m_classifier_module = torch::jit::load(classifier_model_path);
+
+      torch::DeviceType device_type = m_use_gpu ? torch::kCUDA : torch::kCPU;
+      torch::Device device(device_type);
+      m_torch_internal->m_classifier_module.to(device);
+
       std::cout<<"Torch Classifier module is loaded"<<std::endl ;
     }
     catch (const c10::Error& e) {
@@ -634,6 +646,10 @@ PTFlash::initTorch(std::string const& classifier_model_path,
     // Deserialize the ScriptModule from a file using torch::jit::load().
       std::cout<<"TRY TO LOAD CLASSIFIER MODEL : "<<initializer_model_path<<std::endl ;
       m_torch_internal->m_initializer_module = torch::jit::load(initializer_model_path);
+
+      torch::DeviceType device_type = m_use_gpu ? torch::kCUDA : torch::kCPU;
+      torch::Device device(device_type);
+      m_torch_internal->m_initializer_module.to(device);
       std::cout<<"Torch Initializer module is loaded"<<std::endl ;
     }
     catch (const c10::Error& e) {
@@ -678,6 +694,7 @@ void PTFlash::_endComputeTorch() const
     {
     case FullFlash :
     {
+      std::cout<<" TORCH FullFlash FORWARD"<<std::endl ;
       m_perf_mng.start("Torch::Compute") ;
       auto outputs = m_torch_internal->m_module.forward(inputs).toTuple();
       m_perf_mng.stop("Torch::Compute") ;
@@ -750,31 +767,65 @@ void PTFlash::_endComputeTorch() const
     break ;
     case Classifier:
     {
-      std::cout<<"CLASSIFIER FORWARD"<<std::endl ;
+      std::cout<<"TORCH CLASSIFIER FORWARD"<<std::endl ;
       m_perf_mng.start("Torch::Compute") ;
       auto outputs = m_torch_internal->m_classifier_module.forward(inputs);
       m_perf_mng.stop("Torch::Compute") ;
 
       m_perf_mng.start("Torch::End") ;
+
+      m_current_index = 0 ;
+      m_current_unstable_index = 0 ;
+      m_unstable.resize(m_batch_size) ;
+      m_theta_v.resize(m_batch_size) ;
+      m_xi.resize(m_batch_size*m_num_compo) ;
+      m_yi.resize(m_batch_size*m_num_compo) ;
+      m_ki.resize(m_batch_size*m_num_compo) ;
+
       torch::Device cpu_device(torch::kCPU);
       {
           auto out = outputs.toTensor().to(cpu_device);
           torch::ArrayRef<int64_t> sizes = out.sizes();
           std::cout<<"SIZES : "<<sizes[0]<<" "<<sizes.size()<<std::endl ;
-          assert(sizes.size()==1) ;
+          assert(sizes.size()==2) ;
           assert(sizes[0]==m_batch_size) ;
-          m_unstable.resize(m_batch_size) ;
-          m_unstable.assign(out.data_ptr<bool>(),out.data_ptr<bool>() + sizes[0]) ;
+          assert(sizes[1]==1) ;
+          if(m_use_fp32)
+          {
+            float* y = out.data_ptr<float>() ;
+            for(int i=0;i<m_batch_size;++i)
+            {
+              float prob = 1./(1+std::exp(-y[i])) ;
+              m_unstable[i] = prob > 0.5 ;
+            }
+          }
+          else
+          {
+            double* y = out.data_ptr<double>() ;
+            for(int i=0;i<m_batch_size;++i)
+            {
+              double prob = 1./(1+std::exp(-y[i])) ;
+              m_unstable[i] = prob > 0.5 ;
+            }
+          }
       }
       m_perf_mng.stop("Torch::End") ;
     }
     break ;
     case FullClassInit:
     {
-      std::cout<<"CLASSIFIER+INITIALIZER FORWARD"<<std::endl ;
+      std::cout<<"TORCH CLASSIFIER FORWARD"<<std::endl ;
       m_perf_mng.start("Torch::Compute") ;
       auto outputs = m_torch_internal->m_classifier_module.forward(inputs);
       m_perf_mng.stop("Torch::Compute") ;
+
+      m_current_index = 0 ;
+      m_current_unstable_index = 0 ;
+      m_unstable.resize(m_batch_size) ;
+      m_theta_v.resize(m_batch_size) ;
+      m_xi.resize(m_batch_size*m_num_compo) ;
+      m_yi.resize(m_batch_size*m_num_compo) ;
+      m_ki.resize(m_batch_size*m_num_compo) ;
 
       torch::Device cpu_device(torch::kCPU);
       {
@@ -782,22 +833,31 @@ void PTFlash::_endComputeTorch() const
           auto out = outputs.toTensor().to(cpu_device);
           torch::ArrayRef<int64_t> sizes = out.sizes();
           std::cout<<"SIZES : "<<sizes[0]<<" "<<sizes.size()<<std::endl ;
-          assert(sizes.size()==1) ;
+          assert(sizes.size()==2) ;
           assert(sizes[0]==m_batch_size) ;
-          m_unstable.resize(m_batch_size) ;
-          m_unstable.assign(out.data_ptr<bool>(),out.data_ptr<bool>() + sizes[0]) ;
+          assert(sizes[1]==1) ;
+
+          if(m_use_fp32)
+          {
+            float* y = out.data_ptr<float>() ;
+            for(int i=0;i<m_batch_size;++i)
+            {
+              float prob = 1./(1+std::exp(-y[i])) ;
+              m_unstable[i] = prob > 0.5 ;
+            }
+          }
+          else
+          {
+            double* y = out.data_ptr<double>() ;
+            for(int i=0;i<m_batch_size;++i)
+            {
+              double prob = 1./(1+std::exp(-y[i])) ;
+              m_unstable[i] = prob > 0.5 ;
+            }
+          }
           int offset = 0 ;
           int unstable_offset = 0 ;
           int nb_unstable = 0 ;
-
-          m_current_index = 0 ;
-          m_current_unstable_index = 0 ;
-          m_unstable.resize(m_batch_size) ;
-          m_theta_v.resize(m_batch_size) ;
-          m_xi.resize(m_batch_size*m_num_compo) ;
-          m_yi.resize(m_batch_size*m_num_compo) ;
-          m_ki.resize(m_batch_size*m_num_compo) ;
-
 
           if(m_use_fp32)
           {
@@ -837,18 +897,26 @@ void PTFlash::_endComputeTorch() const
 
           if(nb_unstable>0)
           {
+            //torch::Device cuda_device(torch::kCUDA);
+            std::vector<int64_t> initializer_dims = { nb_unstable, m_tensor_size};
+            std::vector<torch::jit::IValue> initializer_inputs;
             if(m_use_fp32)
             {
               torch::TensorOptions options(torch::kFloat32);
-              m_torch_internal->m_x2 = torch::from_blob(m_x2f.data(), torch::IntList(dims), options).clone();
+              m_torch_internal->m_x2 = torch::from_blob(m_x2f.data(), torch::IntList(initializer_dims), options).clone();
             }
             else
             {
               torch::TensorOptions options(torch::kFloat64);
-              m_torch_internal->m_x2 = torch::from_blob(m_x2.data(), torch::IntList(dims), options).clone();
+              m_torch_internal->m_x2 = torch::from_blob(m_x2.data(), torch::IntList(initializer_dims), options).clone();
             }
+
+            m_torch_internal->m_x2 = m_torch_internal->m_x2.to(device) ;
+            initializer_inputs.push_back(m_torch_internal->m_x2);
+
+            std::cout<<"TORCH INITIALIZER FORWARD"<<std::endl ;
             m_perf_mng.start("Torch::Compute") ;
-            auto outputs = m_torch_internal->m_initializer_module.forward(inputs);
+            auto outputs = m_torch_internal->m_initializer_module.forward(initializer_inputs);
             m_perf_mng.stop("Torch::Compute") ;
 
             m_perf_mng.start("Torch::End") ;
@@ -901,6 +969,7 @@ PTFlash::initONNX(std::string const& classifier_model_path,
 {
   m_num_phase = num_phase ;
   m_num_compo = num_compo ;
+  m_use_fp32 = true ;
 
   m_perf_mng.init("ONNX::Init") ;
   m_perf_mng.init("ONNX::Prepare") ;
@@ -1111,6 +1180,7 @@ PTFlash::initTensorRT(std::string const& classifier_model_path,
 {
   m_num_phase = num_phase ;
   m_num_compo = num_compo ;
+  m_use_fp32 = true ;
 
   m_classifier_model_path = classifier_model_path ;
   m_initializer_model_path = initializer_model_path ;
@@ -1215,27 +1285,19 @@ void PTFlash::startCompute(int batch_size) const
   m_offset = 0 ;
   m_current_index = 0 ;
   m_current_unstable_index = 0 ;
-  if(m_use_carnot)
+
+  if(m_use_fp32)
   {
+    m_xf.resize(m_tensor_size*m_batch_size) ;
+    if(m_use_onnx || m_use_tensorrt)
+      m_yf.resize(m_batch_size) ;
+  }
+  else
     m_x.resize(m_tensor_size*m_batch_size) ;
-  }
-  if(m_use_torch)
-  {
-    if(m_use_fp32)
-      m_xf.resize(m_tensor_size*m_batch_size) ;
-    else
-      m_x.resize(m_tensor_size*m_batch_size) ;
-  }
-  if(m_use_onnx)
-  {
-     m_xf.resize(m_tensor_size*m_batch_size) ;
-     m_yf.resize(m_batch_size) ;
-  }
+
   if(m_use_tensorrt)
   {
      m_perf_mng.start("TensorRT::Prepare") ;
-     m_xf.resize(m_tensor_size*m_batch_size) ;
-     m_yf.resize(m_batch_size) ;
 #ifdef USE_TENSORRT
      if(m_model_type == Classifier || m_model_type == FullClassInit)
      {
@@ -1268,7 +1330,7 @@ void PTFlash::asynchCompute(const double P,
                            std::vector<double> const& Zk) const
 {
 
-  if(m_use_onnx || m_use_tensorrt)
+  if(m_use_fp32)
   {
     m_xf[m_offset + 0] = P ;
     m_xf[m_offset + 1] = T ;

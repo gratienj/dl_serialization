@@ -404,7 +404,8 @@ if __name__ == "__main__":
         #trainer = pl.Trainer(
         #    accelerator="gpu" if torch.cuda.is_available() else None, logger=False
         #)
-        accelerator = accelerator="cuda" if torch.cuda.is_available() else None
+        #accelerator = accelerator="cuda" if torch.cuda.is_available() else None
+        accelerator = "cuda"
         print("USE ACCELERATOR : ",accelerator)
         trainer = pl.Trainer(
             accelerator=accelerator, logger=False
@@ -476,14 +477,14 @@ if __name__ == "__main__":
         valid_loader2 = DataLoader(
             valid_ds2, batch_size=batch_size, num_workers=workers, pin_memory=True
         )
-        train(net, train_loader2, valid_loader2, num_epochs=10, device="cuda")
+        train(net, train_loader2, valid_loader2, num_epochs=10, device=accelerator)
         if args.export_onnx == 1 :
             torch.save(net, "initializer_x32.pt")
             if args.save_mode == "sjit":
                 print("JIT SCRIPT EXPORT MODEL")
                 net.eval()
                 snet = torch.jit.script(net)
-                snet.save(f"initializer_x32_sjit_{device}.pt")
+                snet.save(f"initializer_x32_sjit_{accelerator}.pt")
 
             if args.save_mode == "sjitopt":
                 print("JIT SCRIPT OPT EXPORT MODEL")
@@ -492,14 +493,14 @@ if __name__ == "__main__":
                 snet = torch.jit.script(net)
                 snet = torch.jit.freeze(snet)
                 snet_opt = torch.jit.optimize_for_inference(snet)
-                snet_opt.save(f"initializer_x32_sjitopt_{device}.pt")
+                snet_opt.save(f"initializer_x32_sjitopt_{accelerator}.pt")
         else:
             torch.save(net, "initializer_x64.pt")
             if args.save_mode == "sjit":
                 print("JIT SCRIPT EXPORT MODEL")
                 net.eval()
                 snet = torch.jit.script(net)
-                snet.save(f"initializer_x64_sjit_{device}.pt")
+                snet.save(f"initializer_x64_sjit_{accelerator}.pt")
 
             if args.save_mode == "sjitopt":
                 print("JIT SCRIPT OPT EXPORT MODEL")
@@ -508,7 +509,7 @@ if __name__ == "__main__":
                 snet = torch.jit.script(net)
                 snet = torch.jit.freeze(snet)
                 snet_opt = torch.jit.optimize_for_inference(snet)
-                snet_opt.save(f"initializer_x64_sjitopt_{device}.pt")
+                snet_opt.save(f"initializer_x64_sjitopt_{accelerator}.pt")
 
         net.eval()
 
@@ -532,35 +533,7 @@ if __name__ == "__main__":
         if args.export_onnx == 1 :
             if args.save_mode == "sjit":
                 print("LOAD INITUALIZER FROM SJIT PT FILE")
-                net = torch.jit.load(f"initializer_x32_sjit_{device}.pt")
-                net.eval()
-                times = []
-                for i in range(args.n_iter):
-                    inputs = torch.tensor(design.to_numpy()[data_id:data_id + args.batch_size, :], dtype=dtype,
-                                  device=device)
-                    start = default_timer()
-                    pred = net(inputs)
-                    time = default_timer() - start
-                    times.append(time)
-                print(f"TIME FOR TORCH SJIT OPT INFERENCE FLASH :", [f"{time:.4f}" for time in times])
-            
-            if args.save_mode == "sjitopt":
-                print("LOAD INITUALIZER FROM SJIT PT FILE")
-                net = torch.jit.load(f"initializer_x32_sjitopt_{device}.pt")
-                net.eval()
-                times = []
-                for i in range(args.n_iter):
-                    inputs = torch.tensor(design.to_numpy()[data_id:data_id + args.batch_size, :], dtype=dtype,
-                                  device=device)
-                    start = default_timer()
-                    pred = net(inputs)
-                    time = default_timer() - start
-                    times.append(time)
-                print(f"TIME FOR TORCH SJIT OPT INFERENCE FLASH :", [f"{time:.4f}" for time in times])
-        else:
-            if args.save_mode == "sjit":
-                print("LOAD INITUALIZER FROM SJIT PT FILE")
-                net = torch.jit.load(f"initializer_x64_sjit_{device}.pt")
+                net = torch.jit.load(f"initializer_x32_sjit_{accelerator}.pt")
                 net.eval()
                 times = []
                 for i in range(args.n_iter):
@@ -574,7 +547,35 @@ if __name__ == "__main__":
             
             if args.save_mode == "sjitopt":
                 print("LOAD INITUALIZER FROM SJIT PT FILE")
-                net = torch.jit.load(f"initializer_x64_sjitopt_{device}.pt")
+                net = torch.jit.load(f"initializer_x32_sjitopt_{accelerator}.pt")
+                net.eval()
+                times = []
+                for i in range(args.n_iter):
+                    inputs = torch.tensor(design.to_numpy()[data_id:data_id + args.batch_size, :], dtype=dtype,
+                                  device=accelerator)
+                    start = default_timer()
+                    pred = net(inputs)
+                    time = default_timer() - start
+                    times.append(time)
+                print(f"TIME FOR TORCH SJIT OPT INFERENCE FLASH :", [f"{time:.4f}" for time in times])
+        else:
+            if args.save_mode == "sjit":
+                print("LOAD INITUALIZER FROM SJIT PT FILE")
+                net = torch.jit.load(f"initializer_x64_sjit_{accelerator}.pt")
+                net.eval()
+                times = []
+                for i in range(args.n_iter):
+                    inputs = torch.tensor(design.to_numpy()[data_id:data_id + args.batch_size, :], dtype=dtype,
+                                  device=accelerator)
+                    start = default_timer()
+                    pred = net(inputs)
+                    time = default_timer() - start
+                    times.append(time)
+                print(f"TIME FOR TORCH SJIT OPT INFERENCE FLASH :", [f"{time:.4f}" for time in times])
+            
+            if args.save_mode == "sjitopt":
+                print("LOAD INITUALIZER FROM SJIT PT FILE")
+                net = torch.jit.load(f"initializer_x64_sjitopt_{accelerator}.pt")
                 net.eval()
                 times = []
                 for i in range(args.n_iter):
@@ -1237,8 +1238,8 @@ if __name__ == "__main__":
             activation="SiLU",
         )
 
-        accelerator = accelerator="cuda" if torch.cuda.is_available() else None
-        #accelerator = 'cpu'
+        #accelerator = accelerator="cuda" if torch.cuda.is_available() else None
+        accelerator = 'cuda'
         
         
         trainer = pl.Trainer(
@@ -1301,7 +1302,7 @@ if __name__ == "__main__":
                 print("JIT SCRIPT EXPORT MODEL")
                 net.eval()
                 snet = torch.jit.script(net)
-                snet.save(f"classifier_x32_sjit_{device}.pt")
+                snet.save(f"classifier_x32_sjit_{accelerator}.pt")
 
             if args.save_mode == "sjitopt":
                 print("JIT SCRIPT OPT EXPORT MODEL")
@@ -1310,7 +1311,7 @@ if __name__ == "__main__":
                 snet = torch.jit.script(net)
                 snet = torch.jit.freeze(snet)
                 snet_opt = torch.jit.optimize_for_inference(snet)
-                snet_opt.save(f"classifier_x32_sjitopt_{device}.pt")
+                snet_opt.save(f"classifier_x32_sjitopt_{accelerator}.pt")
         else:
             torch.save(net, "classifier_x64.pt")
             
@@ -1318,7 +1319,7 @@ if __name__ == "__main__":
                 print("JIT SCRIPT EXPORT MODEL")
                 net.eval()
                 snet = torch.jit.script(net)
-                snet.save(f"classifier_x64_sjit_{device}.pt")
+                snet.save(f"classifier_x64_sjit_{accelerator}.pt")
 
             if args.save_mode == "sjitopt":
                 print("JIT SCRIPT OPT EXPORT MODEL")
@@ -1327,7 +1328,7 @@ if __name__ == "__main__":
                 snet = torch.jit.script(net)
                 snet = torch.jit.freeze(snet)
                 snet_opt = torch.jit.optimize_for_inference(snet)
-                snet_opt.save(f"classifier_x64_sjitopt_{device}.pt")
+                snet_opt.save(f"classifier_x64_sjitopt_{accelerator}.pt")
 
 
         batch = next(iter(test_loader))
@@ -1351,7 +1352,7 @@ if __name__ == "__main__":
         if args.export_onnx == 1 :
             if args.save_mode == "sjit":
                 print("LOAD INITUALIZER FROM SJIT PT FILE")
-                net = torch.jit.load(f"classifier_x32_sjit_{device}.pt")
+                net = torch.jit.load(f"classifier_x32_sjit_{accelerator}.pt")
                 net.eval()
                 times = []
                 for i in range(args.n_iter):
@@ -1365,7 +1366,7 @@ if __name__ == "__main__":
             
             if args.save_mode == "sjitopt":
                 print("LOAD INITUALIZER FROM SJIT PT FILE")
-                net = torch.jit.load(f"classifier_x32_sjitopt_{device}.pt")
+                net = torch.jit.load(f"classifier_x32_sjitopt_{accelerator}.pt")
                 net.eval()
                 times = []
                 for i in range(args.n_iter):
@@ -1379,7 +1380,7 @@ if __name__ == "__main__":
         else:
             if args.save_mode == "sjit":
                 print("LOAD CLASSIFIER FROM SJIT PT FILE")
-                net = torch.jit.load(f"classifier_x64_sjit_{device}.pt")
+                net = torch.jit.load(f"classifier_x64_sjit_{accelerator}.pt")
                 net.eval()
                 times = []
                 for i in range(args.n_iter):
@@ -1393,7 +1394,7 @@ if __name__ == "__main__":
             
             if args.save_mode == "sjitopt":
                 print("LOAD CLASSIFIER FROM SJIT PT FILE")
-                net = torch.jit.load(f"classifier_x64_sjitopt_{device}.pt")
+                net = torch.jit.load(f"classifier_x64_sjitopt_{accelerator}.pt")
                 net.eval()
                 times = []
                 for i in range(args.n_iter):
