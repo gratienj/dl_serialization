@@ -45,6 +45,13 @@ add_executable(test_gnn.exe test_gnn.cpp graphutils.cpp modelutils.cpp)
 TARGET_LINK_LIBRARIES(test_gnn.exe torch torch_sparse torch_scatter boost)
 
 INSTALL (TARGETS test_gnn.exe RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}/bin")
+
+add_subdirectory(ml4cfd)
+
+add_executable(test_dss.exe test_dss.cpp cnpy.cpp ml4cfd/graphutils.cpp ml4cfd/modelutils.cpp)
+TARGET_LINK_LIBRARIES(test_dss.exe DSSSolver torch torch_sparse torch_scatter boost  z dl)
+
+INSTALL (TARGETS test_dss.exe RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}/bin")
 endif()
 
 find_package( Threads REQUIRED )

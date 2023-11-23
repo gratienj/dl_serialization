@@ -194,7 +194,8 @@ bool TRTEngine::constructNetwork(SampleUniquePtr<nvinfer1::IBuilder>& builder,
 //! \details This function is the main execution function of the sample. It allocates the buffer,
 //!          sets inputs and executes the engine.
 //!
-bool TRTEngine::infer(std::vector<float> const& inputs, std::vector<float>& outputs, int batch_size)
+template<typename ValueT>
+bool TRTEngine::_infer(std::vector<ValueT> const& inputs, std::vector<ValueT>& outputs, int batch_size)
 {
     std::cout<<"INFER"<<std::endl ;
 
@@ -311,39 +312,43 @@ bool TRTEngine::infer(std::vector<float> const& inputs, std::vector<float>& outp
     }
 }
 
+
+bool TRTEngine::infer(std::vector<float> const& inputs, std::vector<float>& outputs, int batch_size)
+{
+  return _infer(inputs,outputs,batch_size) ;
+}
+
+bool TRTEngine::infer(std::vector<double> const& inputs, std::vector<double>& outputs, int batch_size)
+{
+  return _infer(inputs,outputs,batch_size) ;
+}
+
+
 //!
 //! \brief Reads the input and stores the result in a managed buffer
 //!
-bool TRTEngine::processInput(std::vector<float> const& inputs)
+template<typename ValueT>
+bool TRTEngine::_processInput(std::vector<ValueT> const& inputs)
 {
     std::cout<<"PROCESS INPUT"<<std::endl ;
-    //const int inputH = mInputDims.d[2];
-    //const int inputW = mInputDims.d[3];
-
-    /*
-    // Read a random digit file
-    srand(unsigned(time(nullptr)));
-    std::vector<uint8_t> fileData(inputH * inputW);
-    mNumber = rand() % 10;
-    readPGMFile(locateFile(std::to_string(mNumber) + ".pgm", mParams.dataDirs), fileData.data(), inputH, inputW);
-
-    // Print an ascii representation
-    sample::gLogInfo << "Input:" << std::endl;
-    for (int i = 0; i < inputH * inputW; i++)
-    {
-        sample::gLogInfo << (" .:-=+*#%@"[fileData[i] / 26]) << (((i + 1) % inputW) ? "" : "\n");
-    }
-    sample::gLogInfo << std::endl;
-    */
-
-    float* hostDataBuffer = static_cast<float*>(mInput.hostBuffer.data());
+    ValueT* hostDataBuffer = static_cast<ValueT*>(mInput.hostBuffer.data());
     for (int i = 0; i < inputs.size(); i++)
     {
         hostDataBuffer[i] = inputs[i];
-        //std::cout<<"INPUT["<<i<<"]"<<hostDataBuffer[i]<<std::endl ;
     }
 
     return true;
 }
+
+bool TRTEngine::processInput(std::vector<float> const& inputs)
+{
+  return _processInput(inputs) ;
+}
+
+bool TRTEngine::processInput(std::vector<double> const& inputs)
+{
+  return _processInput(inputs) ;
+}
+
 #endif
 

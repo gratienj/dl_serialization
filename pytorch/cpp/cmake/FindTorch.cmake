@@ -16,9 +16,9 @@ if(NOT TORCH_FOUND)
    # pour limiter le mode verbose
   set(TORCH_FIND_QUIETLY ON)
   find_package(Torch)
-  if(TORCH_FOUND)
-    message(status "TORCH FOUND : INC ${TORCH_INCLUDE_DIR}")
-    message(status "TORCH FOUND : LIB ${TORCH_LIBRARY}")
+  if(Torch_FOUND)
+    message(status "Torch FOUND : INC ${TORCH_INCLUDE_DIRS}")
+    message(status "Torch FOUND : LIB ${TORCH_LIBRARIES}")
     add_definitions(-DUSE_TORCH)
   endif()
 endif()
@@ -70,8 +70,8 @@ if(TORCH_FOUND)
         IMPORTED_LINK_INTERFACE_LANGUAGES "CXX"
         IMPORTED_LOCATION "${TORCH_LIBRARIES}")
 
-    #set_target_properties(torch PROPERTIES
-    #      INTERFACE_INCLUDE_DIRECTORIES "${TORCH_CAPI_INCLUDE_DIR}")
+    set_target_properties(torch PROPERTIES
+          INTERFACE_INCLUDE_DIRECTORIES "${TORCH_INCLUDE_DIR}")
     set_target_properties(torch PROPERTIES
           INTERFACE_INCLUDE_DIRECTORIES "${TORCH_INCLUDE_DIRS}")
 

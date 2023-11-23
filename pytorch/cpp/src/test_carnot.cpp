@@ -300,9 +300,9 @@ int main(int argc, char **argv)
            compute_phase2 = "TENSORRT:Compute2" ;
            compute_phase3 = "TENSORRT:Compute3" ;
            if(model2_path.compare("undefined")==0)
-             ptflash.initTensorRT(model_path,model2_path,PTFlash::Classifier,2,nb_comp) ;
+             ptflash.initTensorRT(model_path,model2_path,PTFlash::Classifier,2,nb_comp,use_fp32) ;
            else
-             ptflash.initTensorRT(model_path,model2_path,PTFlash::FullClassInit,2,nb_comp) ;
+             ptflash.initTensorRT(model_path,model2_path,PTFlash::FullClassInit,2,nb_comp,use_fp32) ;
            ptflash.startCompute(batch_size) ;
        }
 

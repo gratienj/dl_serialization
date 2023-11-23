@@ -1176,11 +1176,12 @@ PTFlash::initTensorRT(std::string const& classifier_model_path,
                       std::string const& initializer_model_path,
                       PTFlash::eModelDNNType model,
                       int num_phase,
-                      int num_compo)
+                      int num_compo,
+                      bool use_fp32)
 {
   m_num_phase = num_phase ;
   m_num_compo = num_compo ;
-  m_use_fp32 = true ;
+  m_use_fp32 = use_fp32 ;
 
   m_classifier_model_path = classifier_model_path ;
   m_initializer_model_path = initializer_model_path ;
@@ -1213,7 +1214,16 @@ void PTFlash::_endComputeTensorRT() const
           bool compute_ki = m_tensorrt_internal->m_initializer_engine.get() != nullptr ;
           if(compute_ki)
           {
-            m_x2f.reserve(m_tensor_size*m_batch_size) ;
+            if(m_use_fp32)
+            {
+              m_x2f.resize(0) ;
+              m_x2f.reserve(m_tensor_size*m_batch_size) ;
+            }
+            else
+            {
+              m_x2.resize(0) ;
+              m_x2.reserve(m_tensor_size*m_batch_size) ;
+            }
           }
           int offset = 0 ;
           int unstable_offset = 0 ;
@@ -1226,47 +1236,69 @@ void PTFlash::_endComputeTensorRT() const
           m_xi.resize(m_batch_size*m_num_compo) ;
           m_yi.resize(m_batch_size*m_num_compo) ;
           m_ki.resize(m_batch_size*m_num_compo) ;
-
           for(std::size_t i=0;i<m_batch_size;++i)
           {
               double prob = 1./(1+std::exp(-m_yf[i])) ;
               m_unstable[i] = prob > 0.5 ;
               if(compute_ki && m_unstable[i])
               {
-                  for(int j=0;j<m_tensor_size;++j)
-                    m_x2f.push_back(m_xf[offset+j]) ;
+                  if(m_use_fp32)
+                  {
+                    for(int j=0;j<m_tensor_size;++j)
+                      m_x2f.push_back(m_xf[offset+j]) ;
+                  }
+                  else
+                  {
+                    for(int j=0;j<m_tensor_size;++j)
+                      m_x2.push_back(m_x[offset+j]) ;
+                  }
                   unstable_offset += m_tensor_size ;
                   ++ nb_unstable ;
               }
               offset += m_tensor_size ;
           }
-          assert(m_x2f.size()==unstable_offset) ;
+          if(m_use_fp32)
+            assert(m_x2f.size()==unstable_offset) ;
+          else
+            assert(m_x2.size()==unstable_offset) ;
 
           if(compute_ki && nb_unstable>0)
           {
-              m_y2f.resize(nb_unstable*m_num_compo) ;
-              bool infer_status = m_tensorrt_internal->m_initializer_engine->infer(m_x2f,m_y2f,nb_unstable) ;
+              m_ki.resize(nb_unstable*m_num_compo) ;
+              bool infer_status = false ;
+              if(m_use_fp32)
+              {
+                m_y2f.resize(nb_unstable*m_num_compo) ;
+                infer_status = m_tensorrt_internal->m_initializer_engine->infer(m_x2f,m_y2f,nb_unstable) ;
+                if(infer_status)
+                {
+                   for(std::size_t i=0;i<nb_unstable*m_num_compo;++i)
+                   {
+                     m_ki[i] = m_y2f[i] ;
+                   }
+                }
+              }
+              else
+              {
+                infer_status = m_tensorrt_internal->m_initializer_engine->infer(m_x2,m_ki,nb_unstable) ;
+              }
               if(infer_status)
               {
-                 std::cout<<"INITIALIZER INFER OK"<<std::endl ;
-                 for(std::size_t i=0;i<nb_unstable*m_num_compo;++i)
-                 {
-                   m_ki[i] = m_y2f[i] ;
-                 }
-                 /*
-                 std::cout<<"==================================================="<<std::endl ;
-                 std::cout<<"KI OUTPUT : "<<std::endl ;
-                 int offset = 0 ;
-                 for(int i = 0;i<nb_unstable;++i)
-                 {
-                    std::cout<<"KI["<<i<<"] : (";
-                    for(int j=0;j<m_num_compo;++j)
-                    {
-                      std::cout<<m_ki[offset+j]<<",";
-                    }
-                    offset += m_num_compo ;
-                    std::cout<<")"<<std::endl ;
-                 }*/
+                std::cout<<"INITIALIZER INFER OK"<<std::endl ;
+                /*
+                std::cout<<"==================================================="<<std::endl ;
+                std::cout<<"KI OUTPUT : "<<std::endl ;
+                int offset = 0 ;
+                for(int i = 0;i<nb_unstable;++i)
+                {
+                   std::cout<<"KI["<<i<<"] : (";
+                   for(int j=0;j<m_num_compo;++j)
+                   {
+                     std::cout<<m_ki[offset+j]<<",";
+                   }
+                   offset += m_num_compo ;
+                   std::cout<<")"<<std::endl ;
+                }*/
               }
               else
               {

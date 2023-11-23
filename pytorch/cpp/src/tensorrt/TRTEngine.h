@@ -31,8 +31,10 @@ public:
     //! \brief Runs the TensorRT inference engine for this sample
     //!
     bool infer(std::vector<float> const& input, std::vector<float>& output, int batch_size);
+    bool infer(std::vector<double> const& input, std::vector<double>& output, int batch_size);
 
 private:
+
     std::string m_onnx_model_path ;
     int         m_size = 0 ;
     int         m_nrows = 0 ;
@@ -59,6 +61,13 @@ private:
     //! \brief Reads the input  and stores the result in a managed buffer
     //!
     bool processInput(std::vector<float> const& inputs);
+    bool processInput(std::vector<double> const& inputs);
+
+    template<typename ValueT>
+    bool _processInput(std::vector<ValueT> const& inputs);
+
+    template<typename ValueT>
+    bool _infer(std::vector<ValueT> const& input, std::vector<ValueT>& output, int batch_size);
 #endif
 
 };

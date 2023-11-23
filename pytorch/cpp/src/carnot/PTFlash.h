@@ -67,7 +67,8 @@ public:
                       std::string const& initializer_model_path,
                       eModelDNNType model,
                       int num_phase,
-                      int num_compo) ;
+                      int num_compo,
+                      bool use_fp32=false) ;
 
     void end() ;
 
