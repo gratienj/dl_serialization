@@ -129,6 +129,7 @@ if __name__ == "__main__":
     parser.add_argument("--dir_path",      type=str, default="./",           help="dir path")
     parser.add_argument("--model_name",    type=str, default="gnn1_model",   help="model name")
     parser.add_argument("--device",        type=str, default="cpu",          help="device : cpu, cuda")
+    parser.add_argument("--fp-prec",       type=str, default="x64",          help="fp prec : x64, x32")
     parser.add_argument("--save_mode",     type=str, default="dict",         help="save mode :  dict, sjit, sjitop")
     parser.add_argument("--export_onnx",   type=int, default=0,              help="enable onnx export")
     parser.add_argument("--output",        type=int, default=0,              help="Output level")
@@ -353,7 +354,7 @@ if __name__ == "__main__":
         y = ki.log()
 
 
-        if args.export_onnx == 1 :
+        if args.fp_prec == "x32" :
             dtype = torch.float32
             torch.set_default_dtype(torch.float32)
             X = X.type(torch.FloatTensor)
@@ -405,7 +406,7 @@ if __name__ == "__main__":
         #    accelerator="gpu" if torch.cuda.is_available() else None, logger=False
         #)
         #accelerator = accelerator="cuda" if torch.cuda.is_available() else None
-        accelerator = "cuda"
+        accelerator = "cpu"
         print("USE ACCELERATOR : ",accelerator)
         trainer = pl.Trainer(
             accelerator=accelerator, logger=False
@@ -521,7 +522,7 @@ if __name__ == "__main__":
         if args.export_onnx == 1 :
             torch.onnx.export(net,  # model being run
                               X,  # model input (or a tuple for multiple inputs)
-                              "initializer_x32.onnx",  # where to save the model (can be a file or file-like object)
+                              f"initializer_{args.fp_prec}_{accelerator}.onnx",  # where to save the model (can be a file or file-like object)
                               export_params=True,  # store the trained parameter weights inside the model file
                               opset_version=15,  # the ONNX version to export the model to
                               do_constant_folding=True,  # whether to execute constant folding for optimization
@@ -533,7 +534,7 @@ if __name__ == "__main__":
         if args.export_onnx == 1 :
             if args.save_mode == "sjit":
                 print("LOAD INITUALIZER FROM SJIT PT FILE")
-                net = torch.jit.load(f"initializer_x32_sjit_{accelerator}.pt")
+                net = torch.jit.load(f"initializer_{args.fp_prec}_sjit_{accelerator}.pt")
                 net.eval()
                 times = []
                 for i in range(args.n_iter):
@@ -547,7 +548,7 @@ if __name__ == "__main__":
             
             if args.save_mode == "sjitopt":
                 print("LOAD INITUALIZER FROM SJIT PT FILE")
-                net = torch.jit.load(f"initializer_x32_sjitopt_{accelerator}.pt")
+                net = torch.jit.load(f"initializer_{args.fp_prec}_sjitopt_{accelerator}.pt")
                 net.eval()
                 times = []
                 for i in range(args.n_iter):
@@ -1161,7 +1162,7 @@ if __name__ == "__main__":
         n_components = len(components)
         conditions = {"pmin": 5.0e6, "pmax": 2.5e7, "tmin": 200, "tmax": 600}
 
-        n_samples = 1000000
+        n_samples = 100000
         doe = DOE(
             n_samples,
             n_components,
@@ -1195,7 +1196,8 @@ if __name__ == "__main__":
         X = torch.from_numpy(design.to_numpy())
         y = (~unstable).double().reshape(-1, 1)
 
-        if args.export_onnx == 1:
+
+        if args.fp_prec == "x32" :
             dtype = torch.float32
             torch.set_default_dtype(torch.float32)
             X = X.type(torch.FloatTensor)
@@ -1239,7 +1241,8 @@ if __name__ == "__main__":
         )
 
         #accelerator = accelerator="cuda" if torch.cuda.is_available() else None
-        accelerator = 'cuda'
+        accelerator = 'cpu'
+        print("USING ACCELERATOR : ",accelerator)
         
         
         trainer = pl.Trainer(
@@ -1294,15 +1297,15 @@ if __name__ == "__main__":
         print("CLASSIFIER TEST STEP")
         test_res = trainer.test(wrapper, test_loader)
         
-
+        net.to(accelerator)
         if args.export_onnx == 1 :
-            torch.save(net, "classifier_x32.pt")
+            torch.save(net, f"classifier_{args.fp_prec}_{accelerator}.pt")
             
             if args.save_mode == "sjit":
                 print("JIT SCRIPT EXPORT MODEL")
                 net.eval()
                 snet = torch.jit.script(net)
-                snet.save(f"classifier_x32_sjit_{accelerator}.pt")
+                snet.save(f"classifier_{args.fp_prec}_sjit_{accelerator}.pt")
 
             if args.save_mode == "sjitopt":
                 print("JIT SCRIPT OPT EXPORT MODEL")
@@ -1311,7 +1314,7 @@ if __name__ == "__main__":
                 snet = torch.jit.script(net)
                 snet = torch.jit.freeze(snet)
                 snet_opt = torch.jit.optimize_for_inference(snet)
-                snet_opt.save(f"classifier_x32_sjitopt_{accelerator}.pt")
+                snet_opt.save(f"classifier_{args.fp_prec}_sjitopt_{accelerator}.pt")
         else:
             torch.save(net, "classifier_x64.pt")
             
@@ -1332,14 +1335,14 @@ if __name__ == "__main__":
 
 
         batch = next(iter(test_loader))
-        X = batch[0]
+        X = batch[0].to(accelerator)
         pred = net(X)
 
         # Export the model
         if args.export_onnx == 1 :
             torch.onnx.export(net,  # model being run
                               X,  # model input (or a tuple for multiple inputs)
-                              "classifier_x32.onnx",  # where to save the model (can be a file or file-like object)
+                              f"classifier_{args.fp_prec}_{accelerator}.onnx",  # where to save the model (can be a file or file-like object)
                               export_params=True,  # store the trained parameter weights inside the model file
                               opset_version=15,  # the ONNX version to export the model to
                               do_constant_folding=True,  # whether to execute constant folding for optimization
@@ -1357,7 +1360,7 @@ if __name__ == "__main__":
                 times = []
                 for i in range(args.n_iter):
                     inputs = torch.tensor(design.to_numpy()[data_id:data_id + args.batch_size, :], dtype=dtype,
-                                  device=device)
+                                  device=accelerator)
                     start = default_timer()
                     pred = net(inputs)
                     time = default_timer() - start
@@ -1371,7 +1374,7 @@ if __name__ == "__main__":
                 times = []
                 for i in range(args.n_iter):
                     inputs = torch.tensor(design.to_numpy()[data_id:data_id + args.batch_size, :], dtype=dtype,
-                                  device=device)
+                                  device=accelerator)
                     start = default_timer()
                     pred = net(inputs)
                     time = default_timer() - start
@@ -1385,21 +1388,21 @@ if __name__ == "__main__":
                 times = []
                 for i in range(args.n_iter):
                     inputs = torch.tensor(design.to_numpy()[data_id:data_id + args.batch_size, :], dtype=dtype,
-                                  device=device)
+                                  device=accelerator)
                     start = default_timer()
                     pred = net(inputs)
                     time = default_timer() - start
                     times.append(time)
-                print(f"TIME FOR TORCH SJIT OPT INFERENCE CLASSIFIER :", [f"{time:.4f}" for time in times])
+                print(f"TIME FOR TORCH SJIT INFERENCE CLASSIFIER :", [f"{time:.4f}" for time in times])
             
             if args.save_mode == "sjitopt":
-                print("LOAD CLASSIFIER FROM SJIT PT FILE")
+                print("LOAD CLASSIFIER FROM SJITOPT PT FILE")
                 net = torch.jit.load(f"classifier_x64_sjitopt_{accelerator}.pt")
                 net.eval()
                 times = []
                 for i in range(args.n_iter):
                     inputs = torch.tensor(design.to_numpy()[data_id:data_id + args.batch_size, :], dtype=dtype,
-                                  device=device)
+                                  device=accelerator)
                     start = default_timer()
                     pred = net(inputs)
                     time = default_timer() - start
