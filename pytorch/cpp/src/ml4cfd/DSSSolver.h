@@ -35,6 +35,10 @@ namespace ml4cfd {
       return m_use_gpu ;
     }
 
+    std::size_t batchSize() const {
+      return m_batch_size ;
+    }
+
     double getModelFactor() const {
       return m_model_factor ;
     }
@@ -62,6 +66,7 @@ namespace ml4cfd {
     std::unique_ptr<Internal> m_internal;
     ePrecType m_precision = Float32 ;
     bool m_use_gpu = false ;
+    std::size_t m_batch_size = 1 ;
     double m_model_factor = 1. ;
     double m_dataset_mean = 0. ;
     double m_dataset_std = 1. ;
@@ -72,7 +77,7 @@ namespace ml4cfd {
   {
   public:
     struct Internal ;
-    GraphDataLoader(DSSSolver const& solver, int batch_size) ;
+    GraphDataLoader(DSSSolver const& solver, std::size_t batch_size= 0 ) ;
     virtual ~GraphDataLoader() ;
     std::size_t  createNewGraph() ;
 
@@ -110,13 +115,22 @@ namespace ml4cfd {
         float const* y,
         float const* pos) ;
 
+    void normalizeData() ;
+
     void applyGraphCartesianTransform(std::size_t id) ;
+
+    void updateGraphVertexTagsData(std::size_t id, int const* x, std::size_t size) ;
 
     void updateGraphVertexAttrData(std::size_t id, float const* x, std::size_t size) ;
     void updateGraphVertexAttrData(std::size_t id, double const* x, std::size_t size) ;
+    void releasePTGraphVertexAttrData() ;
 
     float updateGraphPBRData(std::size_t id, float const* y, std::size_t size) ;
     double updateGraphPBRData(std::size_t id, double const* y, std::size_t size) ;
+    void releasePTGraphPRBData() ;
+
+    void updateGraphAijData(std::size_t id, float const* aij, std::size_t size) ;
+    void updateGraphAijData(std::size_t id, double const* aij, std::size_t size) ;
 
     void dumpGraphToJsonFile(std::size_t id,std::string const& filename) ;
 
@@ -156,14 +170,27 @@ namespace ml4cfd {
     void _applyGraphCartesianTransform(GraphType& graph) ;
 
     template<typename GraphType>
-    void _updateGraphPBRDataT(GraphType& graph,
+    typename GraphType::value_type _updateGraphPBRDataT(GraphType& graph,
                               typename GraphType::value_type const* y,
                               std::size_t size) ;
+
+    template<typename GraphType>
+    void _updateGraphVertexTagsDataT(GraphType& graph,
+                                     int const* tags,
+                                     std::size_t size) ;
 
     template<typename GraphType>
     void _updateGraphVertexAttrDataT(GraphType& graph,
                                      typename GraphType::value_type const* x,
                                      std::size_t size) ;
+
+    template<typename GraphType>
+    void _updateGraphAijDataT(GraphType& graph,
+                              typename GraphType::value_type const* aij,
+                              std::size_t size) ;
+
+    template<typename GraphType>
+    double _normalizeData(std::vector<GraphType>& graph_list) ;
 
     DSSSolver const& m_parent;
     DSSSolver::ePrecType m_precision = DSSSolver::Float32 ;
@@ -171,6 +198,7 @@ namespace ml4cfd {
     std::size_t m_batch_size = 1 ;
     double m_dataset_mean = 0. ;
     double m_dataset_std = 1. ;
+    double m_normalize_factor = 1. ;
     std::unique_ptr<Internal> m_internal ;
   };
 
@@ -179,6 +207,7 @@ namespace ml4cfd {
   public :
     std::size_t m_batch_size = 0 ;
     GraphDataLoader::Internal* m_internal = nullptr ;
+    double m_normalize_factor = 1. ;
   };
 
   template<typename ValueT>
@@ -193,6 +222,7 @@ namespace ml4cfd {
   template<typename ValueT>
   std::ostream& operator<<(std::ostream& oss,PredictionT<ValueT> const& prediction)
   {
+    assert(prediction.m_values.size()>=prediction.m_dim0*prediction.m_dim1) ;
     oss<<"Prediction : dim("<<prediction.m_dim0<<","<<prediction.m_dim1<<")"<<std::endl ;
     oss<<"["<<std::endl ;
     int k = 0 ;
@@ -248,6 +278,7 @@ namespace ml4cfd {
     DSSSolver::ePrecType m_precision = DSSSolver::Float32 ;
     std::size_t m_batch_size = 0 ;
     std::size_t m_nb_batch = 0 ;
+    double m_normalize_factor = 1. ;
     std::vector<PredictionT<double>> m_prediction64_list ;
     std::vector<PredictionT<float>>  m_prediction32_list ;
     std::map<std::size_t,ResultBuffer<float>> m_result32_map ;

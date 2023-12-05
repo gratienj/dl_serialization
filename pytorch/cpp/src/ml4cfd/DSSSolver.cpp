@@ -21,7 +21,7 @@
 
 #include "DSSSolver.h"
 
-
+#include "graph.h"
 #include "internal/graphutils.h"
 #include "internal/modelutils.h"
 
@@ -46,14 +46,16 @@ struct GraphDataLoader::Internal
 } ;
 
 
-GraphDataLoader::GraphDataLoader(DSSSolver const& parent, int batch_size)
+GraphDataLoader::GraphDataLoader(DSSSolver const& parent, std::size_t batch_size)
 : m_parent(parent)
 , m_precision(parent.precision())
 , m_use_gpu(parent.useGpu())
-, m_batch_size(batch_size)
+, m_batch_size(parent.batchSize())
 , m_dataset_mean(parent.getDataSetMean())
 , m_dataset_std(parent.getDataSetStd())
 {
+  if(batch_size>0)
+    m_batch_size = batch_size ;
   m_internal.reset(new GraphDataLoader::Internal) ;
 }
 
@@ -148,14 +150,15 @@ void GraphDataLoader::_setGraph(GraphT& graph,
     graph.m_dim = dim ;
     std::size_t size = graph.m_nb_vertices * dim ;
     graph.m_pos.resize(size) ;
-    std::cout<<"SET POS : "<<graph.m_pos.data()<<std::endl ;
     if(pos)
     {
       graph.m_pos.assign( pos, pos+size) ;
+      /*
       for(int i=0;i<graph.m_nb_vertices;++i)
       {
         std::cout<<"POS["<<i<<"]:("<<graph.m_pos[2*i]<<","<<graph.m_pos[2*i+1]<<")"<<std::endl ;
       }
+      */
     }
   }
 }
@@ -313,10 +316,11 @@ void GraphDataLoader::_computePTGraphsT(std::vector<GraphType>& graph_list, std:
 
 void GraphDataLoader::computePTGraphs()
 {
-  std::cout<<"COMPUTE GRPHA DATA"<<m_precision<<std::endl ;
+  //std::cout<<"COMPUTE GRAPH DATA"<<m_precision<<std::endl ;
   switch(m_precision)
   {
     case DSSSolver::Float32 :
+      m_internal->m_pt_graph32_list.resize(0) ;
       _computePTGraphsT(m_internal->m_graph32_list,m_internal->m_pt_graph32_list) ;
       break ;
     case DSSSolver::Float64 :
@@ -344,7 +348,7 @@ void GraphDataLoader::_updatePTGraphDataT(std::vector<GraphType>& graph_list, st
 
 void GraphDataLoader::updatePTGraphData()
 {
-  std::cout<<"UPDATE GRPHA DATA"<<m_precision<<std::endl ;
+  //std::cout<<"UPDATE GRPHA DATA"<<m_precision<<std::endl ;
   switch(m_precision)
   {
     case DSSSolver::Float32 :
@@ -357,17 +361,53 @@ void GraphDataLoader::updatePTGraphData()
   m_internal->m_pt_graph_data_is_updated = true ;
 }
 
+template<typename GraphType>
+double GraphDataLoader::_normalizeData(std::vector<GraphType>& graph_list)
+{
+  double norme_y = 0. ;
+  for(auto const& g : graph_list)
+  {
+    for(auto y : g.m_y)
+      norme_y += y*y ;
+  }
+
+  norme_y = std::sqrt(norme_y) ;
+  for(auto& g : graph_list)
+  {
+    for(std::size_t i=0;i<g.m_y.size();++i)
+    {
+      auto ref = g.m_y[i] ;
+      g.m_y[i] = (g.m_y[i]/norme_y - m_dataset_mean)/ m_dataset_std ;
+      //std::cout<<"PRB["<<i<<"]"<<g.m_y[i]<<" "<<ref<<"/"<<norme_y<<"/"<<m_dataset_std<<std::endl ;
+    }
+  }
+  return norme_y ;
+}
+
+void GraphDataLoader::normalizeData()
+{
+  switch(m_precision)
+  {
+    case DSSSolver::Float32 :
+      m_normalize_factor = _normalizeData(m_internal->m_graph32_list) ;
+      break ;
+    case DSSSolver::Float64 :
+      m_normalize_factor = _normalizeData(m_internal->m_graph64_list) ;
+      break ;
+  }
+  //std::cout<<"NORMALIZE FACTOR : "<<m_normalize_factor<<std::endl ;
+}
 
 GraphData GraphDataLoader::data()
 {
-  std::cout<<"GRAPHDATALOADER::DATA ("<<m_internal->m_pt_graph_is_updated<<" "<<m_internal->m_pt_graph_data_is_updated<<")"<<std::endl ;
+  //std::cout<<"GRAPHDATALOADER::DATA ("<<m_internal->m_pt_graph_is_updated<<" "<<m_internal->m_pt_graph_data_is_updated<<")"<<std::endl ;
   if(! m_internal->m_pt_graph_is_updated)
     computePTGraphs() ;
 
   if(! m_internal->m_pt_graph_data_is_updated)
     updatePTGraphData() ;
 
-  return GraphData{m_batch_size,m_internal.get()} ;
+  return GraphData{m_batch_size,m_internal.get(),m_normalize_factor} ;
 }
 
 
@@ -388,7 +428,7 @@ void GraphDataLoader::_applyGraphCartesianTransform(GraphType& graph)
     typename GraphType::value_type distance = 0. ;
     for(int d=0;d<graph.m_dim;++d)
     {
-      typename GraphType::value_type dij = pos_j[d] - pos_i[d] ;
+      typename GraphType::value_type dij = pos_i[d] - pos_j[d] ;
       //std::cout<<dij<<",";
       dij_max = std::max(dij_max,(dij>0?dij:-dij)) ;
       graph.m_edge_attr[e*graph.m_nb_edge_attr+d] = dij ;
@@ -401,7 +441,7 @@ void GraphDataLoader::_applyGraphCartesianTransform(GraphType& graph)
   }
   dij_max *= 2 ;
   graph.m_dij_max = dij_max ;
-  graph.m_L_max = dij_max ;
+  graph.m_L_max = L_max ;
   std::cout<<"NORMALISATION (LMAX,DMAX):("<<L_max<<","<<dij_max<<std::endl ;
   for(int e=0;e<graph.m_nb_edges;++e)
   {
@@ -429,12 +469,38 @@ void GraphDataLoader::applyGraphCartesianTransform(std::size_t id)
 }
 
 template<typename GraphType>
+void GraphDataLoader::_updateGraphVertexTagsDataT(GraphType& graph,
+                                                  int const* tags,
+                                                  std::size_t size)
+{
+  graph.m_tags.resize(graph.m_nb_vertices) ;
+  std::copy(tags,tags+size,graph.m_tags.data()) ;
+}
+
+template<typename GraphType>
 void GraphDataLoader::_updateGraphVertexAttrDataT(GraphType& graph,
                                                   typename GraphType::value_type const* x,
                                                   std::size_t size)
 {
-  graph.m_x.assign(x,x+graph.m_nb_vertices*graph.m_nb_vertex_attr) ;
+  std::copy(x,x+size*graph.m_nb_vertex_attr,graph.m_x.data()) ;
   m_internal->m_pt_graph_data_is_updated = false ;
+}
+
+void GraphDataLoader::updateGraphVertexTagsData(std::size_t id,
+                                                int const* tags,
+                                                std::size_t size)
+{
+  switch(m_precision)
+  {
+    case DSSSolver::Float32 :
+    {
+      _updateGraphVertexTagsDataT(m_internal->m_graph32_list[id],tags,size) ;
+    }
+    break ;
+    case DSSSolver::Float64 :
+      _updateGraphVertexTagsDataT(m_internal->m_graph64_list[id],tags,size) ;
+      break ;
+  }
 }
 
 void GraphDataLoader::updateGraphVertexAttrData(std::size_t id,
@@ -465,65 +531,155 @@ void GraphDataLoader::updateGraphVertexAttrData(std::size_t id,
 }
 
 template<typename GraphType>
-void GraphDataLoader::_updateGraphPBRDataT(GraphType& graph,
+typename GraphType::value_type GraphDataLoader::_updateGraphPBRDataT(GraphType& graph,
                                            typename GraphType::value_type const* y,
                                            std::size_t size)
 {
-  graph.m_y.assign(y,y+size*graph.m_y_size) ;
+  std::copy(y,y+size*graph.m_y_size,graph.m_y.data()) ;
   typename GraphType::value_type y_norm = 0 ;
-  for(auto y : graph.m_y)
-    y_norm += y*y ;
+  for(std::size_t i=0;i<size;++i)
+  {
+    y_norm += y[i]*y[i] ;
+  }
   graph.m_y_norm = std::sqrt(y_norm) ;
-  y_norm *= m_dataset_std ;
-  for(auto& y : graph.m_y)
-    y = (y-m_dataset_mean)/y_norm ;
+  //for(auto& y : graph.m_y)
+  //  y = (y/graph.m_y_norm-m_dataset_mean)/m_dataset_std ;
+  /*
+  for(std::size_t i=0;i<size;++i)
+  {
+    graph.m_y[i] = (graph.m_y[i]-m_dataset_mean)/m_dataset_std ;
+  }*/
   m_internal->m_pt_graph_data_is_updated = false ;
+  //std::cout<<"NORM B : "<<graph.m_y_norm<<" "<<m_dataset_std<<std::endl ;
+  /*
+  for(std::size_t i=0;i<size;++i)
+  {
+    std::cout<<"PRB["<<i<<"]"<<graph.m_y[i]<<std::endl ;
+  }*/
+  return  graph.m_y_norm ;
 }
 
 float GraphDataLoader::updateGraphPBRData(std::size_t id,
                                           float const* y,
                                           std::size_t size)
 {
-  float y_norm = 1. ;
   switch(m_precision)
+  {
+    case DSSSolver::Float32 :
     {
-      case DSSSolver::Float32 :
-      {
-        _updateGraphPBRDataT(m_internal->m_graph32_list[id],y,size) ;
-        y_norm = m_internal->m_graph32_list[id].m_y_norm ;
-      }
-      break ;
-      case DSSSolver::Float64 :
-        std::vector<double> dy(size) ;
-        std::copy(y,y+size,dy.data()) ;
-        _updateGraphPBRDataT(m_internal->m_graph64_list[id],dy.data(),size) ;
-        y_norm = m_internal->m_graph64_list[id].m_y_norm ;
+      return _updateGraphPBRDataT(m_internal->m_graph32_list[id],y,size) ;
     }
-    return y_norm ;
+    break ;
+    case DSSSolver::Float64 :
+      std::vector<double> dy(size) ;
+      std::copy(y,y+size,dy.data()) ;
+      return _updateGraphPBRDataT(m_internal->m_graph64_list[id],dy.data(),size) ;
+  }
+  return 1. ;
 }
 
 double GraphDataLoader::updateGraphPBRData(std::size_t id,
                                            double const* y,
                                            std::size_t size)
 {
-  double y_norm = 1. ;
   switch(m_precision)
   {
     case DSSSolver::Float32 :
     {
       std::vector<float> fy(size) ;
       std::copy(y,y+size,fy.data()) ;
-      std::cout<<"UPDATE PBR["<<id<<"] : "<<size<<std::endl ;
-      _updateGraphPBRDataT(m_internal->m_graph32_list[id],fy.data(),size) ;
-      y_norm = m_internal->m_graph32_list[id].m_y_norm ;
+      //std::cout<<"UPDATE PBR["<<id<<"] : "<<size<<std::endl ;
+      return _updateGraphPBRDataT(m_internal->m_graph32_list[id],fy.data(),size) ;
     }
     break ;
     case DSSSolver::Float64 :
-      _updateGraphPBRDataT(m_internal->m_graph64_list[id],y,size) ;
-      y_norm = m_internal->m_graph64_list[id].m_y_norm ;
+      return _updateGraphPBRDataT(m_internal->m_graph64_list[id],y,size) ;
   }
-  std::cout<<"NORM B : "<<y_norm<<std::endl ;
-  return y_norm ;
+  return 1.;
+}
+
+void GraphDataLoader::releasePTGraphVertexAttrData()
+{
+  switch(m_precision)
+  {
+    case DSSSolver::Float32 :
+    {
+      for(auto& g : m_internal->m_pt_graph32_list)
+        g.m_x_is_updated = false ;
+    }
+    break ;
+    case DSSSolver::Float64 :
+    {
+      for(auto& g : m_internal->m_pt_graph64_list)
+        g.m_x_is_updated = false ;
+    }
+  }
+}
+
+void GraphDataLoader::releasePTGraphPRBData()
+{
+  switch(m_precision)
+  {
+    case DSSSolver::Float32 :
+    {
+      for(auto& g : m_internal->m_pt_graph32_list)
+        g.m_y_is_updated = false ;
+    }
+    break ;
+    case DSSSolver::Float64 :
+    {
+      for(auto& g : m_internal->m_pt_graph64_list)
+        g.m_y_is_updated = false ;
+
+    }
+  }
+
+}
+
+template<typename GraphType>
+void GraphDataLoader::_updateGraphAijDataT(GraphType& graph,
+                                           typename GraphType::value_type const* aij,
+                                           std::size_t size)
+{
+  graph.m_aij.resize(graph.m_nb_edges) ;
+  std::copy(aij,aij+size,graph.m_aij.data()) ;
+}
+
+void GraphDataLoader::updateGraphAijData(std::size_t id,
+                                         float const* aij,
+                                         std::size_t size)
+{
+  switch(m_precision)
+  {
+    case DSSSolver::Float32 :
+    {
+      _updateGraphAijDataT(m_internal->m_graph32_list[id],aij,size) ;
+    }
+    break ;
+    case DSSSolver::Float64 :
+      std::vector<double> daij(size) ;
+      std::copy(aij,aij+size,daij.data()) ;
+      _updateGraphAijDataT(m_internal->m_graph64_list[id],daij.data(),size) ;
+  }
+}
+
+void GraphDataLoader::updateGraphAijData(std::size_t id,
+                                         double const* aij,
+                                         std::size_t size)
+{
+  switch(m_precision)
+  {
+    case DSSSolver::Float32 :
+    {
+      std::vector<float> faij(size) ;
+      std::copy(aij,aij+size,faij.data()) ;
+      std::cout<<"UPDATE AIJ["<<id<<"] : "<<size<<std::endl ;
+      _updateGraphAijDataT(m_internal->m_graph32_list[id],faij.data(),size) ;
+    }
+    break ;
+    case DSSSolver::Float64 :
+      _updateGraphAijDataT(m_internal->m_graph64_list[id],aij,size) ;
+  }
 }
 
 template<typename value_type, typename index_type>
@@ -614,7 +770,7 @@ void dumpToJsonFileT(GraphT<value_type,index_type> const& graph,std::string cons
     for (int i = 0; i < graph.m_nb_vertices; i++)
     {
         pt::ptree row;
-        std::cout<<"("<<graph.m_pos[i*graph.m_dim]<<","<<graph.m_pos[i*graph.m_dim+1]<<")"<<std::endl ;
+        //std::cout<<"("<<graph.m_pos[i*graph.m_dim]<<","<<graph.m_pos[i*graph.m_dim+1]<<")"<<std::endl ;
         for (int j = 0; j < graph.m_dim; j++)
         {
             // Create an unnamed value
@@ -627,6 +783,45 @@ void dumpToJsonFileT(GraphT<value_type,index_type> const& graph,std::string cons
         pos_node.push_back(std::make_pair("", row));
     }
     root.add_child("pos", pos_node);
+  }
+
+  if(graph.m_tags.size()>0)
+  {
+    pt::ptree tags_node;
+    //std::cout<<"DUMP TAGS "<<std::endl ;
+    for (int i = 0; i < graph.m_nb_vertices; i++)
+    {
+        pt::ptree row;
+        //std::cout<<"("<<i<<","<<graph.m_tags[i]<<")"<<std::endl ;
+        // Create an unnamed value
+        pt::ptree elem;
+        elem.put_value(graph.m_tags[i]);
+        // Add the value to our row
+        row.push_back(std::make_pair("", elem));
+        // Add the row to our matrix
+        tags_node.push_back(std::make_pair("", row));
+    }
+    root.add_child("tags", tags_node);
+  }
+
+
+  if(graph.m_aij.size()>0)
+  {
+    pt::ptree aij_node;
+    //std::cout<<"DUMP AIJ "<<std::endl ;
+    for (int i = 0; i < graph.m_nb_edges; i++)
+    {
+        pt::ptree row;
+        //std::cout<<"("<<i<<","<<graph.m_aij[i]<<")"<<std::endl ;
+        // Create an unnamed value
+        pt::ptree elem;
+        elem.put_value(graph.m_aij[i]);
+        // Add the value to our row
+        row.push_back(std::make_pair("", elem));
+        // Add the row to our matrix
+        aij_node.push_back(std::make_pair("", row));
+    }
+    root.add_child("aij", aij_node);
   }
 
   std::ofstream fout(file_path) ;
@@ -655,39 +850,36 @@ void GraphDataLoader::dumpGraphToJsonFile(std::size_t id, std::string const& fil
 template<typename value1_type, typename value2_type>
 void GraphResults::
 computePreditionToResultsT(std::vector<PredictionT<value1_type>> const& prediction_list,
-    std::map<std::size_t,ResultBuffer<value2_type>>& results)
+                           std::map<std::size_t,ResultBuffer<value2_type>>& results)
 {
   std::size_t nb_batch = prediction_list.size() ;
-  value2_type a = 1. ;
   int begin = 0 ;
-  std::cout<<"COMPUTE PREDICTIONS TO RESULTS"<<results.size()<<std::endl ;
+  //std::cout<<"COMPUTE PREDICTIONS TO RESULTS "<<results.size()<<std::endl ;
   for(std::size_t ib = 0; ib<nb_batch; ++ib)
   {
     auto const& pred = prediction_list[ib] ;
-    std::cout<<"PRED["<<ib<<"]"<<pred.m_dim0<<" "<<pred.m_dim1<<std::endl ;
+    //std::cout<<"PRED["<<ib<<"]"<<pred.m_dim0<<" "<<pred.m_dim1<<std::endl ;
     int offset = 0 ;
     int end = std::min(begin+m_batch_size,results.size()) ;
     for(int id = begin;id<end;++id)
     {
       auto&  y = results[id] ;
-      std::cout<<"RESULT["<<id<<"]"<<y.m_restricted_size<<" "<<y.m_size<<" "<<y.m_norm_factor<<std::endl ;
+      //std::cout<<"RESULT["<<id<<"]"<<y.m_restricted_size<<" "<<y.m_size<<" "<<y.m_norm_factor<<std::endl ;
       value2_type mse = 0. ;
-      value2_type avg = 0. ;
-      value2_type avg_ref = 0. ;
       for(int k=0;k<y.m_restricted_size;++k)
       {
         value2_type ref = y.m_values[k] ;
-        value2_type val = pred.m_values[offset+k]*y.m_norm_factor ;
+        value2_type val = pred.m_values[offset+k]*m_normalize_factor ;
         value2_type d = ref - val ;
-        avg_ref += ref>0?ref:-ref ;
-        avg += val>0?val:-val ;
         mse += d*d ;
-        y.m_values[k] = a*val+(1-a)*ref ;
-        std::cout<<"   SOL["<<k<<"] "<<y.m_values[k]<<" lu="<<ref<<" pred="<<val<<" factor="<<y.m_norm_factor<<std::endl ;
+        y.m_values[k] = val ;
+        //std::cout<<"   SOL["<<k<<"] "<<y.m_values[k]<<","<<ref<<","<<pred.m_values[offset+k]<<" factor="<<m_normalize_factor<<std::endl ;
       }
-      std::cout<<"(AVG,AVGREF,MSE,F)=("<<avg<<" "<<avg_ref<<" "<<mse/(begin-end)<<" "<<avg/avg_ref<<")"<<std::endl ;
+      if(y.m_restricted_size>0)
+        mse /= y.m_restricted_size ;
+      //std::cout<<"MSE="<<mse<<" "<<mse/m_normalize_factor<<std::endl ;
       offset += y.m_size ;
-      std::cout<<"OFFSET : "<<offset<<std::endl;
+      //std::cout<<"OFFSET : "<<offset<<std::endl;
     }
     assert(offset == pred.m_dim0) ;
     begin = end ;
@@ -769,41 +961,77 @@ void DSSSolver::initFromConfigFile(std::string const& config_path)
     m_precision = Float32 ;
   if(precision==64)
     m_precision = Float64 ;
-  bool use_gpu = root.get<int>("gpu",0) > 0 ;
+  m_use_gpu = root.get<int>("gpu",0) > 0 ;
+
+  m_batch_size = root.get<int>("batch-size",1) ;
 
   m_model_factor = root.get<double>("model-factor",1.) ;
-  m_dataset_mean = root.get<double>("data-mean",0.) ;
-  m_dataset_std = root.get<double>("data-std",1.) ;
+  m_dataset_mean = root.get<double>("dataset-mean",0.) ;
+  m_dataset_std = root.get<double>("dataset-std",1.) ;
 
   std::string model_path = root.get<std::string>("model");
   m_internal.reset(new Internal) ;
-  m_internal->m_model = read_model(model_path, use_gpu);
+  m_internal->m_model = read_model(model_path, m_use_gpu);
 }
 
 bool DSSSolver::solve(GraphData const& data, GraphResults& results)
 {
+  //std::cout<<"DSSSolver::solve : "<<data.m_internal->m_pt_graph32_list.size()<<std::endl ;
+  //std::cout<<"RESULTS : "<<results.m_prediction32_list.size()<<std::endl ;
+  //std::cout<<"BATCH SIZE : "<<data.m_batch_size<<std::endl ;
   switch(m_precision)
   {
     case Float32 :
     {
-      results.m_prediction32_list = std::move(infer(m_internal->m_model, data.m_internal->m_pt_graph32_list, m_use_gpu,0,data.m_batch_size));
+      results.m_normalize_factor = data.m_normalize_factor ;
       results.m_batch_size = data.m_batch_size ;
+      auto prediction32_list = std::move(infer(m_internal->m_model, data.m_internal->m_pt_graph32_list, m_use_gpu,0,data.m_batch_size));
+      /*
       for(auto& pred : results.m_prediction32_list)
       {
           std::cout<<"PRED : "<<std::endl ;
           std::cout<<pred<<std::endl ;
+      }
+      */
+      switch(results.m_precision)
+      {
+        case Float32 :
+        {
+          results.computePreditionToResultsT(prediction32_list,results.m_result32_map) ;
+        }
+        break ;
+        case Float64 :
+        {
+          results.computePreditionToResultsT(prediction32_list,results.m_result64_map) ;
+        }
+        break ;
       }
       return true ;
     }
     break ;
     case Float64 :
     {
+      results.m_normalize_factor = data.m_normalize_factor ;
       results.m_batch_size = data.m_batch_size ;
-      results.m_prediction64_list = std::move(infer(m_internal->m_model, data.m_internal->m_pt_graph64_list, m_use_gpu,0,data.m_batch_size));
+      auto prediction64_list = std::move(infer(m_internal->m_model, data.m_internal->m_pt_graph64_list, m_use_gpu,0,data.m_batch_size));
+       /*
       for(auto& pred : results.m_prediction64_list)
       {
           std::cout<<"PRED : "<<std::endl ;
           std::cout<<pred<<std::endl ;
+      }*/
+      switch(results.m_precision)
+      {
+        case Float32 :
+        {
+          results.computePreditionToResultsT(prediction64_list,results.m_result32_map) ;
+        }
+        break ;
+        case Float64 :
+        {
+          results.computePreditionToResultsT(prediction64_list,results.m_result64_map) ;
+        }
+        break ;
       }
       return true ;
 

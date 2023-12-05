@@ -1,7 +1,7 @@
 
 set(DSSSolver_VERSION "1.0.0")
 
-add_library(DSSSolver SHARED DSSSolver.h DSSSolver.cpp graphutils.cpp modelutils.cpp cnpy.cpp)
+add_library(DSSSolver SHARED DSSSolver.h DSSSolver.cpp graph.h graphutils.cpp modelutils.cpp cnpy.cpp)
 TARGET_LINK_LIBRARIES(DSSSolver torch torch_sparse torch_scatter boost  z dl)
 
 INSTALL (TARGETS DSSSolver 

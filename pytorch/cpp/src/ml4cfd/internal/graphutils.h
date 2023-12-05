@@ -12,44 +12,11 @@
 #include <torch/serialize/tensor.h>
 #include <torch/serialize.h>
 
-template<typename ValueT=double, typename IndexT=int64_t>
-class GraphT
-{
-public :
-  typedef ValueT value_type ;
-  typedef IndexT index_type ;
-  std::size_t             m_nb_vertices = 0;
-  std::size_t             m_nb_edges    = 0;
-  std::size_t             m_nb_vertex_attr = 0 ;
-  std::size_t             m_nb_edge_attr   = 0 ;
-  std::size_t             m_y_size         = 0 ;
-  int                     m_dim            = 2 ;
-  std::vector<index_type>    m_batch ;
-  std::vector<value_type> m_x ;
-  std::vector<index_type> m_edge_index ;
-  std::vector<value_type> m_edge_attr ;
-  std::vector<value_type> m_y ;
-  std::vector<value_type> m_pos ;
-  value_type              m_dij_max = 1. ;
-  value_type              m_L_max = 1. ;
-  value_type              m_y_norm = 1. ;
-} ;
+namespace ml4cfd {
 
-typedef GraphT<> Graph ;
+typedef GraphT<double,int64_t> Graph ;
 
-std::ostream& operator <<(std::ostream& ostream,const Graph& graph) ;
-
-void loadFromFile(Graph& graph,std::string const& path) ;
-void loadFromFile(GraphT<float,int64_t>& graph,std::string const& path) ;
-
-void loadFromJsonFile(Graph& graph,std::string const& path) ;
-void loadFromJsonFile(GraphT<float,int64_t>& graph,std::string const& path) ;
-
-template<typename ValueT, typename IndexT>
-void loadFromFileT(GraphT<ValueT,IndexT>& graph,std::string const& path) ;
-
-template<typename ValueT, typename IndexT>
-void loadFromJsonFileT(GraphT<ValueT,IndexT>& graph,std::string const& path) ;
+std::ostream& operator <<(std::ostream& ostream,const GraphT<double,int64_t>& graph) ;
 
 template<typename ValueT=double, typename IndexT=int64_t>
 class PTGraphT
@@ -62,7 +29,41 @@ public :
   torch::Tensor m_edge_index ;
   torch::Tensor m_edge_attr ;
   torch::Tensor m_y ;
+  bool m_x_is_updated          = false ;
+  bool m_edge_index_is_updated = false ;
+  bool m_edge_attr_is_updated  = false ;
+  bool m_y_is_updated          = false ;
+
+  torch::Device m_batch_device = torch::Device(torch::kCPU);
+  torch::Device m_x_device = torch::Device(torch::kCPU);
+  torch::Device m_edge_index_device = torch::Device(torch::kCPU);
+  torch::Device m_edge_attr_device = torch::Device(torch::kCPU);
+  torch::Device m_y_device = torch::Device(torch::kCPU);
+
+  void to(torch::Device device) {
+    if(m_x_device!=device)
+    {
+      m_x = m_x.to(device) ;
+      m_x_device = device ;
+    }
+    if(m_edge_index_device!=device)
+    {
+      m_edge_index = m_edge_index.to(device) ;
+      m_edge_index_device = device ;
+    }
+    if(m_edge_attr_device!=device)
+    {
+      m_edge_attr = m_edge_attr.to(device) ;
+      m_edge_attr_device = device ;
+    }
+    if(m_y_device!=device)
+    {
+      m_y = m_y.to(device) ;
+      m_y_device = device ;
+    }
+  }
 } ;
+
 typedef PTGraphT<> PTGraph ;
 
 void loadFromPTFile(PTGraph& graph,std::string const& path) ;
@@ -84,3 +85,4 @@ void updateGraph2PTGraphData(GraphT<float,int64_t>* begin, int batch_size, PTGra
 void assignPTGraphToOnes(PTGraph& pt_graph, int64_t dim0, int64_t dim1) ;
 
 void assignPTGraphToRandn(PTGraph& pt_graph, int64_t dim0, int64_t dim1) ;
+}

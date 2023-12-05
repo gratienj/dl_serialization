@@ -19,16 +19,16 @@ struct PredictionT ;
 
 torch::jit::script::Module read_model(std::string, bool);
 
-std::vector<ml4cfd::PredictionT<PTGraph::value_type>>
+std::vector<ml4cfd::PredictionT<ml4cfd::PTGraph::value_type>>
 infer(torch::jit::script::Module model,
-      std::vector<PTGraph>& graphs,
+      std::vector<ml4cfd::PTGraph>& graphs,
       bool usegpu,
       int nb_args,
       int batch_size) ;
 
-std::vector<ml4cfd::PredictionT<PTGraphT<float,int64_t>::value_type>>
+std::vector<ml4cfd::PredictionT<ml4cfd::PTGraphT<float,int64_t>::value_type>>
 infer(torch::jit::script::Module model,
-      std::vector<PTGraphT<float,int64_t>>& graphs,
+      std::vector<ml4cfd::PTGraphT<float,int64_t>>& graphs,
       bool usegpu,
       int nb_args,
       int batch_size) ;

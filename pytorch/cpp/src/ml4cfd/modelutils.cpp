@@ -1,4 +1,4 @@
-
+#include "graph.h"
 #include "internal/graphutils.h"
 #include "internal/modelutils.h"
 
@@ -16,7 +16,7 @@ namespace ml4cfd {
 // Predict
 
 template<typename value_type, typename index_type>
-torch::Tensor __predict_basic(torch::jit::script::Module model, PTGraphT<value_type,index_type>& graph, int nb_args,torch::Device device)
+torch::Tensor __predict_basic(torch::jit::script::Module model, ml4cfd::PTGraphT<value_type,index_type>& graph, int nb_args,torch::Device device)
 {
 
   std::vector<torch::jit::IValue> inputs;
@@ -44,7 +44,7 @@ torch::Tensor __predict_basic(torch::jit::script::Module model, PTGraphT<value_t
 }
 
 template<typename value_type, typename index_type>
-torch::Tensor __predict(torch::jit::script::Module model, PTGraphT<value_type,index_type>& graph) {
+torch::Tensor __predict(torch::jit::script::Module model, ml4cfd::PTGraphT<value_type,index_type>& graph) {
 
   std::vector<torch::jit::IValue> inputs;
   //inputs.push_back(graph.m_batch) ;
@@ -55,7 +55,9 @@ torch::Tensor __predict(torch::jit::script::Module model, PTGraphT<value_type,in
 
   // Execute the model and turn its output into a tensor.
   torch::NoGradGuard no_grad;
+  //std::cout<<"MODEL forward "<<inputs.size()<<std::endl ;
   torch::Tensor output = model.forward(inputs).toTensor();
+  //std::cout<<"after MODEL forward"<<std::endl ;
 
   return output;
 }
@@ -83,7 +85,7 @@ torch::jit::script::Module read_model(std::string model_path, bool usegpu) {
 // 2. Forward
 template<typename value_type, typename index_type>
 std::vector<ml4cfd::PredictionT<value_type> >
-basic_forwardT(std::vector<PTGraphT<value_type,index_type>>& graphs,
+basic_forwardT(std::vector<ml4cfd::PTGraphT<value_type,index_type>>& graphs,
               torch::jit::script::Module model,
               int nb_args,
               bool use_gpu)
@@ -119,71 +121,73 @@ basic_forwardT(std::vector<PTGraphT<value_type,index_type>>& graphs,
 // 2. Forward
 template<typename value_type, typename index_type>
 std::vector<ml4cfd::PredictionT<value_type> >
-forwardT(std::vector<PTGraphT<value_type,index_type>>& graphs,
+forwardT(std::vector<ml4cfd::PTGraphT<value_type,index_type>>& graphs,
         torch::jit::script::Module model,
         bool usegpu,
         int batch_size)
 {
-  std::vector<ml4cfd::PredictionT<value_type>> predictions ;
+  //std::cout<<"FORWARD : NB GRAPHS : "<<graphs.size()<<std::endl ;
+  std::vector<ml4cfd::PredictionT<value_type>> predictions(graphs.size()) ;
 
   if (usegpu)
   {
       torch::DeviceType gpu_device_type = torch::kCUDA;
       torch::Device gpu_device(gpu_device_type);
+
+      torch::DeviceType cpu_device_type = torch::kCPU;
+      torch::Device cpu_device(cpu_device_type);
+      std::size_t icount = 0 ;
+
       for(auto& g : graphs)
       {
-        g.m_batch = g.m_batch.to(gpu_device) ;
-        g.m_x = g.m_x.to(gpu_device) ;
-        g.m_edge_index = g.m_edge_index.to(gpu_device) ;
-        g.m_edge_attr = g.m_edge_attr.to(gpu_device) ;
+        g.m_x          = g.m_x.to(gpu_device_type) ;
+        g.m_edge_index = g.m_edge_index.to(gpu_device_type) ;
+        g.m_edge_attr  = g.m_edge_attr.to(gpu_device_type) ;
+        g.m_y          = g.m_y.to(gpu_device_type) ;
+
         torch::Tensor output = __predict(model, g);
 
-
-        torch::DeviceType cpu_device_type = torch::kCPU;
-        torch::Device cpu_device(cpu_device_type);
         output = output.to(cpu_device);
         int ndim = output.ndimension();
         assert(ndim == 2);
         torch::ArrayRef<int64_t> sizes = output.sizes();
-        ml4cfd::PredictionT<value_type> prediction ;
+        //ml4cfd::PredictionT<value_type> prediction ;
+        auto& prediction = predictions[icount++] ;
         prediction.m_dim0 = sizes[0] ;
         prediction.m_dim1 = sizes[1] ;
 
-        std::cout<<"SIZES : "<<sizes[0]<<" "<<sizes[1]<<std::endl ;
         prediction.m_values = std::vector<value_type>(output.data_ptr<value_type>(),
                                    output.data_ptr<value_type>() + (sizes[0] * sizes[1]));
-        predictions.push_back(std::move(prediction)) ;
       }
-
-      //tensor = tensor.to(gpu_device);
   }
   else
   {
       torch::DeviceType cpu_device_type = torch::kCPU;
       torch::Device cpu_device(cpu_device_type);
+      std::size_t icount = 0 ;
       for(auto& g : graphs)
       {
+        //std::cout<<"COMPUTE GRAPH["<<icount<<"]"<<std::endl ;
         torch::Tensor output = __predict(model, g);
 
         output = output.to(cpu_device);
         int ndim = output.ndimension();
         assert(ndim == 2);
         torch::ArrayRef<int64_t> sizes = output.sizes();
-        ml4cfd::PredictionT<value_type> prediction ;
+
+        auto& prediction = predictions[icount++] ;
         prediction.m_dim0 = sizes[0] ;
         prediction.m_dim1 = sizes[1] ;
-        std::cout<<"SIZES : "<<sizes[0]<<" "<<sizes[1]<<std::endl ;
 
         prediction.m_values = std::vector<value_type>(output.data_ptr<value_type>(),
                                    output.data_ptr<value_type>() + (sizes[0] * sizes[1]));
-        predictions.push_back(std::move(prediction)) ;
       }
   }
   return predictions;
 }
 
-std::vector<ml4cfd::PredictionT<PTGraph::value_type> >
-infer(torch::jit::script::Module model, std::vector<PTGraph>& graphs,bool usegpu,int nb_args,int batch_size)
+std::vector<ml4cfd::PredictionT<ml4cfd::PTGraphT<double,int64_t>::value_type> >
+infer(torch::jit::script::Module model, std::vector<ml4cfd::PTGraphT<double,int64_t>>& graphs,bool usegpu,int nb_args,int batch_size)
 {
     // Forward
     if(nb_args==0)
@@ -193,8 +197,8 @@ infer(torch::jit::script::Module model, std::vector<PTGraph>& graphs,bool usegpu
 }
 
 
-std::vector<ml4cfd::PredictionT<PTGraphT<float,int64_t>::value_type> >
-infer(torch::jit::script::Module model, std::vector<PTGraphT<float,int64_t>>& graphs,bool usegpu,int nb_args,int batch_size)
+std::vector<ml4cfd::PredictionT<ml4cfd::PTGraphT<float,int64_t>::value_type> >
+infer(torch::jit::script::Module model, std::vector<ml4cfd::PTGraphT<float,int64_t>>& graphs,bool usegpu,int nb_args,int batch_size)
 {
     // Forward
     if(nb_args==0)
