@@ -1,8 +1,18 @@
 
 set(DSSSolver_VERSION "1.0.0")
+include_directories(${TorchCPP_SOURCE_DIR}/src)
 
-add_library(DSSSolver SHARED DSSSolver.h DSSSolver.cpp graph.h graphutils.cpp modelutils.cpp cnpy.cpp)
-TARGET_LINK_LIBRARIES(DSSSolver torch torch_sparse torch_scatter boost  z dl)
+add_library(DSSSolver SHARED DSSSolver.h DSSSolver.cpp TRTEngine.cpp graph.h graphutils.cpp modelutils.cpp cnpy.cpp ../utils/9.2/logger.cpp)
+TARGET_LINK_LIBRARIES(DSSSolver boost  z dl)
+if(TARGET torch)
+TARGET_LINK_LIBRARIES(DSSSolver torch torch_sparse torch_scatter)
+endif()
+if(TARGET onnx)
+TARGET_LINK_LIBRARIES(DSSSolver onnx)
+endif()
+if(TARGET TensorRT::TensorRT)
+TARGET_LINK_LIBRARIES(DSSSolver TensorRT::TensorRT)
+endif()
 
 INSTALL (TARGETS DSSSolver 
          EXPORT DSSSolverTargets

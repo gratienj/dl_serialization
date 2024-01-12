@@ -13,10 +13,11 @@ endif()
 
 
 #message(status " FIND ONNX : ${ONNX_ROOT} ${ONNX_FOUND}")
+#  find_path(ONNX_RUNTIME_SESSION_INCLUDE_DIRS onnxruntime/core/session/onnxruntime_cxx_api.h 
 if(NOT ONNX_FOUND)
    # pour limiter le mode verbose
   set(ONNX_FIND_QUIETLY ON)
-  find_path(ONNX_RUNTIME_SESSION_INCLUDE_DIRS onnxruntime/core/session/onnxruntime_cxx_api.h 
+  find_path(ONNX_RUNTIME_SESSION_INCLUDE_DIRS onnxruntime_cxx_api.h 
             HINTS ${ONNX_ROOT}/include)
 
   find_library(ONNX_RUNTIME_LIB onnxruntime 

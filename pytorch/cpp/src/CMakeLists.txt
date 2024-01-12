@@ -5,7 +5,7 @@ TARGET_LINK_LIBRARIES(test_loadmodel.exe torch boost)
 INSTALL (TARGETS test_loadmodel.exe RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}/bin")
 
 if(TARGET TensorRT::TensorRT)
-add_library(trt_engine SHARED tensorrt/TRTEngine.cpp utils/logger.cpp)
+add_library(trt_engine SHARED tensorrt/TRTEngine.cpp tensorrt/TRTEngineTester.cpp utils/9.2/logger.cpp)
 target_include_directories(trt_engine PUBLIC ${CUDA_INCLUDE_DIRS} ${TensorRT_INCLUDE_DIRS})
 target_include_directories(trt_engine PRIVATE ${TorchCPP_SOURCE_DIR}/src)
 target_link_libraries(trt_engine PUBLIC ${CUDA_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${TensorRT_LIBRARIES})
@@ -49,10 +49,30 @@ INSTALL (TARGETS test_gnn.exe RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}/bin")
 add_subdirectory(ml4cfd)
 
 add_executable(test_dss.exe test_dss.cpp cnpy.cpp ml4cfd/graphutils.cpp ml4cfd/modelutils.cpp)
-TARGET_LINK_LIBRARIES(test_dss.exe DSSSolver torch torch_sparse torch_scatter boost  z dl)
+
+TARGET_LINK_LIBRARIES(test_dss.exe DSSSolver boost  z dl)
+target_include_directories(test_dss.exe PRIVATE ${TorchCPP_SOURCE_DIR}/src)
+if(TARGET torch)
+TARGET_LINK_LIBRARIES(test_dss.exe torch torch_sparse torch_scatter)
+endif()
+if(TARGET onnx)
+TARGET_LINK_LIBRARIES(test_dss.exe onnx)
+endif()
+if(TARGET TensorRT::TensorRT)
+TARGET_LINK_LIBRARIES(test_dss.exe trt_engine TensorRT::TensorRT)
+endif()
 
 INSTALL (TARGETS test_dss.exe RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}/bin")
 endif()
+
+add_executable(test_trt.exe test_trt.cpp)
+target_include_directories(test_trt.exe PRIVATE ${TorchCPP_SOURCE_DIR}/src)
+if(TARGET TensorRT::TensorRT)
+TARGET_LINK_LIBRARIES(test_trt.exe trt_engine TensorRT::TensorRT)
+endif()
+
+INSTALL (TARGETS test_dss.exe RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}/bin")
+
 
 find_package( Threads REQUIRED )
 

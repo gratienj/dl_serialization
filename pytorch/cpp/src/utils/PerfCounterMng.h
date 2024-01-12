@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include <boost/timer.hpp>
+//#include <boost/timer.hpp>
 #include <map>
 #include <iostream>
 #include <iomanip>
@@ -21,6 +21,33 @@ public:
   typedef PhaseT                         PhaseType ;
   typedef std::pair<ValueType,ValueType> CountType ;
   typedef std::map<PhaseType,CountType>  CountListType ;
+  typedef PerfCounterMng<PhaseType>      ThisType ;
+
+  class Sentry
+  {
+  public :
+    Sentry(ThisType& parent, PhaseType phase)
+    : m_parent(parent)
+    , m_phase(phase)
+    {
+      m_parent.start(m_phase) ;
+    }
+
+    ~Sentry()
+    {
+      release() ;
+    }
+
+    void release()
+    {
+      m_parent.stop(m_phase) ;
+    }
+
+  private:
+    ThisType& m_parent ;
+    PhaseType m_phase ;
+  };
+
 
   PerfCounterMng()
   : m_last_value(0)
@@ -35,10 +62,12 @@ public:
     count.first = 0 ;
     count.second = 0 ;
   }
+
   void start(PhaseType const& phase)
   {
     rdtsc(&m_counts[phase].second) ;
   }
+
   void stop(PhaseType const& phase)
   {
     CountType& count = m_counts[phase] ;
@@ -79,6 +108,7 @@ public:
 
   int getCpuFreq()
   {
+    return 2700 ;
     /* return cpu frequency in MHZ as read in /proc/cpuinfo */
     float ffreq = 0;
     int r = 0;

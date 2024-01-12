@@ -6,11 +6,11 @@
  */
 
 #ifdef USE_TENSORRT
-#include "utils/argsParser.h"
-#include "utils/buffers.h"
-#include "utils/common.h"
-#include "utils/logger.h"
-#include "utils/parserOnnxConfig.h"
+#include "utils/9.2/argsParser.h"
+#include "utils/9.2/buffers.h"
+#include "utils/9.2/common.h"
+#include "utils/9.2/logger.h"
+#include "utils/9.2/parserOnnxConfig.h"
 
 #include "NvInfer.h"
 

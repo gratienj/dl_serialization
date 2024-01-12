@@ -85,4 +85,58 @@ void updateGraph2PTGraphData(GraphT<float,int64_t>* begin, int batch_size, PTGra
 void assignPTGraphToOnes(PTGraph& pt_graph, int64_t dim0, int64_t dim1) ;
 
 void assignPTGraphToRandn(PTGraph& pt_graph, int64_t dim0, int64_t dim1) ;
+
+
+template<typename ValueT=double, typename IndexT=int64_t>
+class ONNXGraphT
+{
+public :
+  typedef ValueT value_type ;
+  typedef IndexT index_type ;
+  std::size_t m_total_nb_vertices = 0;
+  std::size_t m_total_nb_edges = 0;
+  std::vector<index_type> m_batch ;
+  std::vector<value_type> m_x ;
+  std::vector<index_type> m_edge_index ;
+  std::vector<value_type> m_edge_attr ;
+  std::vector<value_type> m_y ;
+  bool m_x_is_updated          = false ;
+  bool m_edge_index_is_updated = false ;
+  bool m_edge_attr_is_updated  = false ;
+  bool m_y_is_updated          = false ;
+} ;
+
+void convertGraph2PTGraph(GraphT<float,int64_t>* begin, int batch_size, ONNXGraphT<float,int64_t>& pt_graph) ;
+void convertGraph2PTGraph(GraphT<float,int64_t>* begin, int batch_size, ONNXGraphT<float,int>& pt_graph) ;
+void updateGraph2PTGraphData(GraphT<float,int64_t>* begin, int batch_size, ONNXGraphT<float,int64_t>& pt_graph) ;
+void updateGraph2PTGraphData(GraphT<float,int64_t>* begin, int batch_size, ONNXGraphT<float,int>& pt_graph) ;
+void convertGraph2PTGraph(GraphT<double,int64_t>* begin, int batch_size, ONNXGraphT<double,int64_t>& pt_graph) ;
+void convertGraph2PTGraph(GraphT<double,int64_t>* begin, int batch_size, ONNXGraphT<double,int>& pt_graph) ;
+void updateGraph2PTGraphData(GraphT<double,int64_t>* begin, int batch_size, ONNXGraphT<double,int64_t>& pt_graph) ;
+void updateGraph2PTGraphData(GraphT<double,int64_t>* begin, int batch_size, ONNXGraphT<double,int>& pt_graph) ;
+
+template<typename ValueT=double, typename IndexT=int64_t>
+class TensorRTGraphT
+{
+public :
+  typedef ValueT value_type ;
+  typedef IndexT index_type ;
+  std::size_t m_total_nb_vertices = 0;
+  std::size_t m_total_nb_edges = 0;
+  std::vector<index_type> m_batch ;
+  std::vector<value_type> m_x ;
+  std::vector<index_type> m_edge_index ;
+  std::vector<value_type> m_edge_attr ;
+  std::vector<value_type> m_y ;
+  bool m_x_is_updated          = false ;
+  bool m_edge_index_is_updated = false ;
+  bool m_edge_attr_is_updated  = false ;
+  bool m_y_is_updated          = false ;
+} ;
+
+void convertGraph2PTGraph(GraphT<float,int64_t>* begin, int batch_size, TensorRTGraphT<float,int64_t>& pt_graph) ;
+void updateGraph2PTGraphData(GraphT<float,int64_t>* begin, int batch_size, TensorRTGraphT<float,int64_t>& pt_graph) ;
+void convertGraph2PTGraph(GraphT<double,int64_t>* begin, int batch_size, TensorRTGraphT<double,int64_t>& pt_graph) ;
+void updateGraph2PTGraphData(GraphT<double,int64_t>* begin, int batch_size, TensorRTGraphT<double,int64_t>& pt_graph) ;
+
 }

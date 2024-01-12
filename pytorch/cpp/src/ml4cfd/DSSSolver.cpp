@@ -19,36 +19,70 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
 
+#include "utils/PerfCounterMng.h"
 #include "DSSSolver.h"
 
 #include "graph.h"
 #include "internal/graphutils.h"
 #include "internal/modelutils.h"
 
+#ifdef USE_CUDA
+#include <cuda_runtime.h>
+#endif
 
-
+#ifdef USE_TORCH
 #include <torch/script.h>
 #include <torch/serialize/tensor.h>
 #include <torch/serialize.h>
+#endif
+
+#ifdef USE_ONNX
+//#include <onnxruntime/core/session/onnxruntime_cxx_api.h>
+#include <onnxruntime_cxx_api.h>
+#include <onnxruntime_c_api.h>
+#endif
+
+#ifdef USE_TENSORRT
+#include "utils/9.2/argsParser.h"
+#include "utils/9.2/buffers.h"
+#include "utils/9.2/common.h"
+#include "utils/9.2/logger.h"
+#include "utils/9.2/parserOnnxConfig.h"
+#include "NvInfer.h"
+
+using namespace nvinfer1;
+using samplesCommon::SampleUniquePtr;
+
+#include "internal/TRTEngine.h"
+#endif
+
 
 namespace ml4cfd {
+typedef PerfCounterMng<std::string> PerfCounterMngType ;
 
 struct GraphDataLoader::Internal
 {
-  std::vector<GraphT<float,int64_t>>   m_graph32_list ;
-  std::vector<PTGraphT<float,int64_t>> m_pt_graph32_list ;
+  std::vector<GraphT<float,int64_t>>          m_graph32_list ;
+  std::vector<PTGraphT<float,int64_t>>        m_pt_graph32_list ;
+  std::vector<ONNXGraphT<float,int64_t>>      m_onnx_graph32_list ;
+  std::vector<ONNXGraphT<float,int>>          m_trt_graph32_list ;
 
-  std::vector<GraphT<double,int64_t>>   m_graph64_list ;
-  std::vector<PTGraphT<double,int64_t>> m_pt_graph64_list ;
+  std::vector<GraphT<double,int64_t>>         m_graph64_list ;
+  std::vector<PTGraphT<double,int64_t>>       m_pt_graph64_list ;
+  std::vector<ONNXGraphT<double,int64_t>>     m_onnx_graph64_list ;
+  std::vector<ONNXGraphT<double,int>>         m_trt_graph64_list ;
 
   bool m_pt_graph_is_updated = false ;
   bool m_pt_graph_data_is_updated = false ;
+
+  mutable PerfCounterMng<std::string> m_perf_mng ;
 } ;
 
 
 GraphDataLoader::GraphDataLoader(DSSSolver const& parent, std::size_t batch_size)
 : m_parent(parent)
 , m_precision(parent.precision())
+, m_backend_rt(parent.backEndRT())
 , m_use_gpu(parent.useGpu())
 , m_batch_size(parent.batchSize())
 , m_dataset_mean(parent.getDataSetMean())
@@ -57,10 +91,19 @@ GraphDataLoader::GraphDataLoader(DSSSolver const& parent, std::size_t batch_size
   if(batch_size>0)
     m_batch_size = batch_size ;
   m_internal.reset(new GraphDataLoader::Internal) ;
+  m_internal->m_perf_mng.init("GraphDataLoader::LoadData") ;
 }
 
 GraphDataLoader::~GraphDataLoader()
-{}
+{
+  if(m_internal.get())
+  {
+    std::cout<<"=============================="<<std::endl ;
+    std::cout<<"GRAPH DATA LOADER PERF INFO : "<<std::endl ;
+    m_internal->m_perf_mng.printInfo();
+    std::cout<<"=============================="<<std::endl ;
+  }
+}
 
 std::size_t GraphDataLoader::createNewGraph()
 {
@@ -320,11 +363,38 @@ void GraphDataLoader::computePTGraphs()
   switch(m_precision)
   {
     case DSSSolver::Float32 :
-      m_internal->m_pt_graph32_list.resize(0) ;
-      _computePTGraphsT(m_internal->m_graph32_list,m_internal->m_pt_graph32_list) ;
+      switch(m_backend_rt)
+      {
+        case DSSSolver::Torch:
+          m_internal->m_pt_graph32_list.resize(0) ;
+          _computePTGraphsT(m_internal->m_graph32_list,m_internal->m_pt_graph32_list) ;
+          break ;
+        case DSSSolver::ONNX:
+          m_internal->m_onnx_graph32_list.resize(0) ;
+          _computePTGraphsT(m_internal->m_graph32_list,m_internal->m_onnx_graph32_list) ;
+          break ;
+        case DSSSolver::TensorRT:
+          m_internal->m_trt_graph32_list.resize(0) ;
+          _computePTGraphsT(m_internal->m_graph32_list,m_internal->m_trt_graph32_list) ;
+          break ;
+      }
       break ;
     case DSSSolver::Float64 :
-      _computePTGraphsT(m_internal->m_graph64_list,m_internal->m_pt_graph64_list) ;
+      switch(m_backend_rt)
+      {
+        case DSSSolver::Torch:
+          m_internal->m_pt_graph64_list.resize(0) ;
+          _computePTGraphsT(m_internal->m_graph64_list,m_internal->m_pt_graph64_list) ;
+          break ;
+        case DSSSolver::ONNX:
+          m_internal->m_onnx_graph64_list.resize(0) ;
+          _computePTGraphsT(m_internal->m_graph64_list,m_internal->m_onnx_graph64_list) ;
+          break ;
+        case DSSSolver::TensorRT:
+          m_internal->m_trt_graph64_list.resize(0) ;
+          _computePTGraphsT(m_internal->m_graph64_list,m_internal->m_trt_graph64_list) ;
+          break ;
+      }
       break ;
   }
   m_internal->m_pt_graph_is_updated = true ;
@@ -339,6 +409,7 @@ void GraphDataLoader::_updatePTGraphDataT(std::vector<GraphType>& graph_list, st
   std::size_t begin = 0 ;
   for(int ib = 0; ib<nb_batch; ++ib)
   {
+    std::cout<<"PTGRAPH["<<ib<<"]"<<pt_graph_list[ib].m_y_is_updated<<std::endl ;
     std::size_t size = std::min(m_batch_size,graph_list.size()-begin) ;
     updateGraph2PTGraphData(graph_list.data()+begin,size,pt_graph_list[ib]);
     begin = begin+size ;
@@ -352,14 +423,37 @@ void GraphDataLoader::updatePTGraphData()
   switch(m_precision)
   {
     case DSSSolver::Float32 :
-      _updatePTGraphDataT(m_internal->m_graph32_list,m_internal->m_pt_graph32_list) ;
+      switch(m_backend_rt)
+      {
+        case DSSSolver::Torch:
+          _updatePTGraphDataT(m_internal->m_graph32_list,m_internal->m_pt_graph32_list) ;
+          break ;
+        case DSSSolver::ONNX:
+          _updatePTGraphDataT(m_internal->m_graph32_list,m_internal->m_onnx_graph32_list) ;
+          break ;
+        case DSSSolver::TensorRT:
+          _updatePTGraphDataT(m_internal->m_graph32_list,m_internal->m_trt_graph32_list) ;
+          break ;
+      }
       break ;
     case DSSSolver::Float64 :
-      _updatePTGraphDataT(m_internal->m_graph64_list,m_internal->m_pt_graph64_list) ;
+      switch(m_backend_rt)
+      {
+        case DSSSolver::Torch:
+          _updatePTGraphDataT(m_internal->m_graph64_list,m_internal->m_pt_graph64_list) ;
+          break ;
+        case DSSSolver::ONNX:
+          _updatePTGraphDataT(m_internal->m_graph64_list,m_internal->m_onnx_graph64_list) ;
+          break ;
+        case DSSSolver::TensorRT:
+          _updatePTGraphDataT(m_internal->m_graph64_list,m_internal->m_trt_graph64_list) ;
+          break ;
+      }
       break ;
   }
   m_internal->m_pt_graph_data_is_updated = true ;
 }
+
 
 template<typename GraphType>
 double GraphDataLoader::_normalizeData(std::vector<GraphType>& graph_list)
@@ -395,12 +489,13 @@ void GraphDataLoader::normalizeData()
       m_normalize_factor = _normalizeData(m_internal->m_graph64_list) ;
       break ;
   }
-  //std::cout<<"NORMALIZE FACTOR : "<<m_normalize_factor<<std::endl ;
+  std::cout<<"NORMALIZE FACTOR : "<<m_normalize_factor<<std::endl ;
 }
 
 GraphData GraphDataLoader::data()
 {
-  //std::cout<<"GRAPHDATALOADER::DATA ("<<m_internal->m_pt_graph_is_updated<<" "<<m_internal->m_pt_graph_data_is_updated<<")"<<std::endl ;
+  PerfCounterMngType::Sentry sentry(m_internal->m_perf_mng,"GraphDataLoader::LoadData") ;
+  std::cout<<"GRAPHDATALOADER::DATA ("<<m_internal->m_pt_graph_is_updated<<" "<<m_internal->m_pt_graph_data_is_updated<<")"<<std::endl ;
   if(! m_internal->m_pt_graph_is_updated)
     computePTGraphs() ;
 
@@ -622,12 +717,15 @@ void GraphDataLoader::releasePTGraphPRBData()
   {
     case DSSSolver::Float32 :
     {
+      std::cout<<"RELEASE PT GRAPH x32 PRB : "<<m_internal->m_pt_graph32_list.size()<<std::endl ;;
+
       for(auto& g : m_internal->m_pt_graph32_list)
         g.m_y_is_updated = false ;
     }
     break ;
     case DSSSolver::Float64 :
     {
+      std::cout<<"RELEASE PT GRAPH x64 PRB : "<<m_internal->m_pt_graph32_list.size() ;
       for(auto& g : m_internal->m_pt_graph64_list)
         g.m_y_is_updated = false ;
 
@@ -864,20 +962,27 @@ computePreditionToResultsT(std::vector<PredictionT<value1_type>> const& predicti
     for(int id = begin;id<end;++id)
     {
       auto&  y = results[id] ;
-      //std::cout<<"RESULT["<<id<<"]"<<y.m_restricted_size<<" "<<y.m_size<<" "<<y.m_norm_factor<<std::endl ;
+#ifdef DEBUG
+      std::cout<<"RESULT["<<id<<"]"<<y.m_restricted_size<<" "<<y.m_size<<" "<<y.m_norm_factor<<" "<<m_normalize_factor<<std::endl ;
       value2_type mse = 0. ;
+#endif
       for(int k=0;k<y.m_restricted_size;++k)
       {
-        value2_type ref = y.m_values[k] ;
         value2_type val = pred.m_values[offset+k]*m_normalize_factor ;
+        y.m_values[k] = val ;
+#ifdef DEBUG
+        value2_type ref = y.m_values[k] ;
         value2_type d = ref - val ;
         mse += d*d ;
-        y.m_values[k] = val ;
-        //std::cout<<"   SOL["<<k<<"] "<<y.m_values[k]<<","<<ref<<","<<pred.m_values[offset+k]<<" factor="<<m_normalize_factor<<std::endl ;
+#endif
+        //std::cout<<"   SOL["<<k<<"]="<<y.m_values[k]<<","<<ref<<","<<pred.m_values[offset+k]<<" factor="<<m_normalize_factor<<std::endl ;
+        //std::cout<<"   SOL["<<k<<"]="<<y.m_values[k]<<","<<ref<<std::endl ;
       }
+#ifdef DEBUG
       if(y.m_restricted_size>0)
         mse /= y.m_restricted_size ;
-      //std::cout<<"MSE="<<mse<<" "<<mse/m_normalize_factor<<std::endl ;
+      std::cout<<"MSE="<<mse<<" "<<mse/m_normalize_factor<<std::endl ;
+#endif
       offset += y.m_size ;
       //std::cout<<"OFFSET : "<<offset<<std::endl;
     }
@@ -924,26 +1029,118 @@ void GraphResults::computePreditionToResults()
 
 struct DSSSolver::Internal
 {
+  mutable PerfCounterMng<std::string> m_perf_mng ;
+} ;
+
+struct DSSSolver::TorchInternal
+{
   torch::jit::script::Module m_model ;
+  mutable PerfCounterMng<std::string> m_perf_mng ;
+} ;
+
+
+struct DSSSolver::ONNXInternal
+{
+  ONNXInternal()
+#ifdef USE_ONNX
+: m_environment(OrtLoggingLevel::ORT_LOGGING_LEVEL_WARNING)
+#endif
+  {}
+
+#ifdef USE_ONNX
+    Ort::Env m_environment;
+    std::unique_ptr<Ort::Session> m_session;
+    cudaStream_t m_cuda_compute_stream = nullptr ;
+    OrtCUDAProviderOptionsV2* m_cuda_options = nullptr;
+#endif
+    mutable PerfCounterMng<std::string> m_perf_mng ;
+} ;
+
+
+struct DSSSolver::TensorRTInternal
+{
+  std::unique_ptr<TRTEngine> m_trt_engine ;
+  mutable PerfCounterMng<std::string> m_perf_mng ;
 } ;
 
 DSSSolver::DSSSolver()
-: m_precision(DSSSolver::Float32)
 {
-
+  std::cout<<"DSSSOLVER DEFAULT CONSTRUCTOR : "<<std::endl ;
 }
 
 DSSSolver::~DSSSolver()
 {
-  //delete m_internal ;
+  std::cout<<"DSSSOLVER PERF INFO : "<<std::endl ;
+  if(m_torch_internal.get())
+    m_torch_internal->m_perf_mng.printInfo();
+  if(m_onnx_internal.get())
+  {
+    const OrtApi* api = OrtGetApiBase()->GetApi(ORT_API_VERSION);
+    if(m_onnx_internal->m_cuda_options)
+      api->ReleaseCUDAProviderOptions(m_onnx_internal->m_cuda_options);
+
+    if(m_onnx_internal->m_cuda_compute_stream)
+      cudaStreamDestroy(m_onnx_internal->m_cuda_compute_stream);
+
+    std::cout<<"======================"<<std::endl ;
+    m_onnx_internal->m_perf_mng.printInfo();
+  }
+  if(m_tensorrt_internal.get())
+    m_tensorrt_internal->m_perf_mng.printInfo();
+  if(m_internal.get())
+    m_internal->m_perf_mng.printInfo();
+  std::cout<<"======================"<<std::endl ;
 }
 
-void DSSSolver::init(std::string const& model_path,ePrecType prec, bool use_gpu)
+void DSSSolver::init(std::string const& model_path, ePrecType prec, eBackEndRT backend_rt, bool use_gpu)
 {
   m_precision = prec ;
+  m_backend_rt = backend_rt ;
   m_use_gpu = use_gpu ;
   m_internal.reset(new Internal) ;
-  m_internal->m_model = read_model(model_path, use_gpu);
+  m_internal->m_perf_mng.init("DSSSolver::ComputeResults") ;
+  m_internal->m_perf_mng.init("DSSSolver::Solve") ;
+  switch(m_backend_rt)
+  {
+    case Torch :
+      {
+        m_torch_internal.reset(new TorchInternal) ;
+        m_torch_internal->m_perf_mng.init("Torch::Init") ;
+        m_torch_internal->m_perf_mng.init("Torch::Prepare") ;
+        m_torch_internal->m_perf_mng.init("Torch::Compute") ;
+        m_torch_internal->m_perf_mng.init("Torch::End") ;
+        PerfCounterMngType::Sentry sentry(m_torch_internal->m_perf_mng,"Torch::Prepare") ;
+        m_torch_internal->m_model = read_model(model_path, use_gpu);
+      }
+      break ;
+    case ONNX :
+      {
+        m_internal->m_perf_mng.init("DSSSolver::ONNXCreateTensor") ;
+        m_internal->m_perf_mng.init("DSSSolver::ONNXRun") ;
+        m_onnx_internal.reset(new ONNXInternal) ;
+        m_onnx_internal->m_perf_mng.init("ONNX::Init") ;
+        m_onnx_internal->m_perf_mng.init("ONNX::Prepare") ;
+        m_onnx_internal->m_perf_mng.init("ONNX::Compute") ;
+        m_onnx_internal->m_perf_mng.init("ONNX::End") ;
+        PerfCounterMngType::Sentry sentry(m_onnx_internal->m_perf_mng,"ONNX::Prepare") ;
+        Ort::SessionOptions session_options;
+        session_options.SetIntraOpNumThreads(1);
+        session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_EXTENDED);
+        m_onnx_internal->m_session = std::make_unique<Ort::Session>(m_onnx_internal->m_environment, model_path.c_str(), session_options);
+      }
+      break ;
+    case TensorRT :
+      {
+        m_tensorrt_internal.reset(new TensorRTInternal) ;
+        m_tensorrt_internal->m_perf_mng.init("TensorRT::Init") ;
+        m_tensorrt_internal->m_perf_mng.init("TensorRT::Prepare") ;
+        m_tensorrt_internal->m_perf_mng.init("TensorRT::Compute") ;
+        m_tensorrt_internal->m_perf_mng.init("TensorRT::End") ;
+        PerfCounterMngType::Sentry sentry(m_tensorrt_internal->m_perf_mng,"TensorRT::Prepare") ;
+        m_tensorrt_internal->m_trt_engine.reset( new TRTEngine(model_path,m_batch_size));
+      }
+      break ;
+  }
 }
 
 void DSSSolver::initFromConfigFile(std::string const& config_path)
@@ -969,23 +1166,457 @@ void DSSSolver::initFromConfigFile(std::string const& config_path)
   m_dataset_mean = root.get<double>("dataset-mean",0.) ;
   m_dataset_std = root.get<double>("dataset-std",1.) ;
 
+  std::string backend = root.get<std::string>("backend","torch");
   std::string model_path = root.get<std::string>("model");
   m_internal.reset(new Internal) ;
-  m_internal->m_model = read_model(model_path, m_use_gpu);
+  if(backend.compare("torch")==0)
+  {
+    m_backend_rt = Torch ;
+#ifdef USE_TORCH
+    m_torch_internal.reset(new TorchInternal) ;
+    m_torch_internal->m_perf_mng.init("Torch::Init") ;
+    m_torch_internal->m_perf_mng.init("Torch::Prepare") ;
+    m_torch_internal->m_perf_mng.init("Torch::Compute") ;
+    m_torch_internal->m_perf_mng.init("Torch::End") ;
+    PerfCounterMngType::Sentry sentry(m_torch_internal->m_perf_mng,"Torch::Prepare") ;
+    m_torch_internal->m_model = read_model(model_path, m_use_gpu);
+#endif
+  }
+  if(backend.compare("onnx")==0)
+  {
+    m_backend_rt = ONNX ;
+#ifdef USE_ONNX
+    m_onnx_internal.reset(new ONNXInternal) ;
+    m_onnx_internal.reset(new ONNXInternal) ;
+    m_onnx_internal->m_perf_mng.init("ONNX::Init") ;
+    m_onnx_internal->m_perf_mng.init("ONNX::Prepare") ;
+    m_onnx_internal->m_perf_mng.init("ONNX::Compute") ;
+    m_onnx_internal->m_perf_mng.init("ONNX::End") ;
+    PerfCounterMngType::Sentry sentry(m_onnx_internal->m_perf_mng,"ONNX::Prepare") ;
+    Ort::SessionOptions session_options;
+    session_options.SetIntraOpNumThreads(1);
+    session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_EXTENDED);
+    if(m_use_gpu)
+    {
+      cudaStreamCreateWithFlags(&m_onnx_internal->m_cuda_compute_stream, cudaStreamNonBlocking);
+      //MyCustomOp custom_op{onnxruntime::kCudaExecutionProvider};
+      const OrtApi* api = OrtGetApiBase()->GetApi(ORT_API_VERSION);
+      api->CreateCUDAProviderOptions(&m_onnx_internal->m_cuda_options);
+
+      std::vector<const char*> keys{"device_id", "gpu_mem_limit", "arena_extend_strategy", "cudnn_conv_algo_search", "do_copy_in_default_stream", "cudnn_conv_use_max_workspace", "cudnn_conv1d_pad_to_nc1d"};
+      std::vector<const char*> values{"0", "2147483648", "kSameAsRequested", "DEFAULT", "1", "1", "1"};
+
+      api->UpdateCUDAProviderOptions(m_onnx_internal->m_cuda_options, keys.data(), values.data(), keys.size());
+      api->UpdateCUDAProviderOptionsWithValue(m_onnx_internal->m_cuda_options, "user_compute_stream", m_onnx_internal->m_cuda_compute_stream) ;
+
+      std::cout << "Running simple inference with cuda provider" << std::endl;
+      //auto cuda_options = CreateDefaultOrtCudaProviderOptionsWithCustomStream(m_onnx_internal->m_cuda_compute_stream);
+      session_options.AppendExecutionProvider_CUDA_V2(*m_onnx_internal->m_cuda_options);
+    }
+
+    m_onnx_internal->m_session = std::make_unique<Ort::Session>(m_onnx_internal->m_environment, model_path.c_str(), session_options);
+#endif
+  }
+  if(backend.compare("tensorrt")==0)
+  {
+    m_backend_rt = TensorRT ;
+#ifdef USE_TENSORRT
+
+    m_tensorrt_internal.reset(new TensorRTInternal) ;
+    m_tensorrt_internal->m_perf_mng.init("TensorRT::Init") ;
+    m_tensorrt_internal->m_perf_mng.init("TensorRT::Prepare") ;
+    m_tensorrt_internal->m_perf_mng.init("TensorRT::Compute") ;
+    m_tensorrt_internal->m_perf_mng.init("TensorRT::End") ;
+    PerfCounterMngType::Sentry sentry(m_tensorrt_internal->m_perf_mng,"TensorRT::Prepare") ;
+    m_tensorrt_internal->m_trt_engine.reset( new TRTEngine(model_path,m_batch_size));
+#endif
+  }
 }
+
+template<typename value_type, typename PTGraphT>
+std::vector<ml4cfd::PredictionT<value_type> >
+forwardT(std::vector<PTGraphT>& graphs,
+        Ort::Session* session,
+        bool usegpu,
+        PerfCounterMngType& perf_mng)
+{
+  std::vector<ml4cfd::PredictionT<value_type>> predictions(graphs.size()) ;
+  if (usegpu)
+  {
+    std::cout<<"FORWARD ON GPU : NB GRAPHS : "<<graphs.size()<<std::endl ;
+    std::size_t icount = 0 ;
+    for(auto& g : graphs)
+    {
+      // onnx tensors:
+      Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
+
+      // input:
+      std::vector<Ort::Value> input_tensors;
+      {
+        PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXCreateTensor") ;
+        Ort::TypeInfo input_type_info = session->GetInputTypeInfo(0);
+        auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
+        std::vector<int64_t> input_dims = input_tensor_info.GetShape();
+        assert(input_dims.size()==2) ;
+        assert(input_dims[0]==-1) ;
+        assert(input_dims[1]==1) ;
+        // batch size
+        input_dims[0] = g.m_total_nb_vertices;
+        std::cout<<"NB VERTICES : "<<g.m_total_nb_vertices<<std::endl ;
+        input_tensors.push_back(Ort::Value::CreateTensor<value_type>(memory_info,
+                                                                const_cast<value_type*>(g.m_x.data()),
+                                                                g.m_x.size(),
+                                                                input_dims.data(),
+                                                                input_dims.size()));
+      }
+      {
+        PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXCreateTensor") ;
+        Ort::TypeInfo input_type_info = session->GetInputTypeInfo(1);
+        auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
+        std::vector<int64_t> input_dims = input_tensor_info.GetShape();
+        assert(input_dims.size()==2) ;
+        assert(input_dims[0]==2) ;
+        assert(input_dims[1]==-1) ;
+        input_dims[1]= g.m_total_nb_edges ;
+        /*
+        std::cout<<"NB EDGES : "<<g.m_total_nb_edges<<std::endl ;
+        std::cout<<"EDGE INDEX : "<<std::endl ;
+        for(int e=0;e<g.m_total_nb_edges;++e)
+        {
+          std::cout<<"EDGE["<<e<<"] : ["<<g.m_edge_index[e]<<","<<g.m_edge_index[e+g.m_total_nb_edges]<<"]"<<std::endl ;
+        }*/
+        input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info,
+                                                                  const_cast<int64_t*>(g.m_edge_index.data()),
+                                                                  g.m_edge_index.size(),
+                                                                  input_dims.data(),
+                                                                  input_dims.size()));
+      }
+      {
+        PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXCreateTensor") ;
+        Ort::TypeInfo input_type_info = session->GetInputTypeInfo(2);
+        auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
+        std::vector<int64_t> input_dims = input_tensor_info.GetShape();
+        assert(input_dims.size()==2) ;
+        assert(input_dims[0]==-1) ;
+        assert(input_dims[1]==3) ;
+        assert(g.m_edge_attr.size() == g.m_total_nb_edges*3) ;
+        input_dims[0] = g.m_total_nb_edges;
+        input_tensors.push_back(Ort::Value::CreateTensor<value_type>(memory_info,
+                                                                  const_cast<value_type*>(g.m_edge_attr.data()),
+                                                                  g.m_edge_attr.size(),
+                                                                  input_dims.data(),
+                                                                  input_dims.size()));
+      }
+      {
+        PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXCreateTensor") ;
+        Ort::TypeInfo input_type_info = session->GetInputTypeInfo(3);
+        auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
+        std::vector<int64_t> input_dims = input_tensor_info.GetShape();
+        assert(input_dims.size()==2) ;
+        assert(input_dims[0]==-1) ;
+        assert(input_dims[1]==1) ;
+        assert(g.m_y.size() == g.m_total_nb_vertices) ;
+        input_dims[0] = g.m_total_nb_vertices;
+        input_tensors.push_back(Ort::Value::CreateTensor<value_type>(memory_info,
+                                                                  const_cast<value_type*>(g.m_y.data()),
+                                                                  g.m_y.size(),
+                                                                  input_dims.data(),
+                                                                  input_dims.size()));
+      }
+
+
+      // output:
+      std::vector<Ort::Value> output_tensors;
+      {
+        PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXCreateTensor") ;
+        Ort::TypeInfo output_type_info = session->GetOutputTypeInfo(0);
+        auto output_tensor_info = output_type_info.GetTensorTypeAndShapeInfo();
+        std::vector<int64_t> output_dims = output_tensor_info.GetShape();
+        assert(output_dims.size()==2) ;
+        assert(output_dims[0]==-1) ;
+        assert(output_dims[1]==1) ;
+        output_dims[0] = g.m_total_nb_vertices ;
+
+        auto& prediction = predictions[icount++] ;
+        prediction.m_dim0 = g.m_total_nb_vertices ;
+        prediction.m_dim1 = 1 ;
+
+        prediction.m_values.resize(prediction.m_dim0 * prediction.m_dim1);
+        output_tensors.push_back(Ort::Value::CreateTensor<value_type>(memory_info,
+                                                                 prediction.m_values.data(),
+                                                                 prediction.m_values.size(),
+                                                                 output_dims.data(), output_dims.size()));
+      }
+
+
+      // serving names:
+      std::string input0_name = session->GetInputNameAllocated(0, Ort::AllocatorWithDefaultOptions()).get();
+      std::string input1_name = session->GetInputNameAllocated(1, Ort::AllocatorWithDefaultOptions()).get();
+      std::string input2_name = session->GetInputNameAllocated(2, Ort::AllocatorWithDefaultOptions()).get();
+      std::string input3_name = session->GetInputNameAllocated(3, Ort::AllocatorWithDefaultOptions()).get();
+
+      std::vector<const char*>  input_names{input0_name.c_str(),
+                                            input1_name.c_str(),
+                                            input2_name.c_str(),
+                                            input3_name.c_str()};
+      std::string output_name = session->GetOutputNameAllocated(0, Ort::AllocatorWithDefaultOptions()).get();
+      std::vector<const char*> output_names{output_name.c_str()};
+
+      std::cout<<" ONNX MODEL INFERENCE ON GPU"<<std::endl ;
+      PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXRun") ;
+     // model inference
+      session->Run(Ort::RunOptions{nullptr},
+                   input_names.data(),
+                   input_tensors.data(), 4,
+                   output_names.data(),
+                   output_tensors.data(), 1);
+
+      std::cout<<"onnx inference ok"<<std::endl;
+
+    }
+
+  }
+  else
+  {
+      std::cout<<"FORWARD ON CPU : NB GRAPHS : "<<graphs.size()<<std::endl ;
+      std::size_t icount = 0 ;
+      for(auto& g : graphs)
+      {
+        // onnx tensors:
+        Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
+
+        // input:
+        std::vector<Ort::Value> input_tensors;
+        {
+          PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXCreateTensor") ;
+          Ort::TypeInfo input_type_info = session->GetInputTypeInfo(0);
+          auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
+          std::vector<int64_t> input_dims = input_tensor_info.GetShape();
+          assert(input_dims.size()==2) ;
+          assert(input_dims[0]==-1) ;
+          assert(input_dims[1]==1) ;
+          // batch size
+          input_dims[0] = g.m_total_nb_vertices;
+          std::cout<<"NB VERTICES : "<<g.m_total_nb_vertices<<std::endl ;
+          input_tensors.push_back(Ort::Value::CreateTensor<value_type>(memory_info,
+                                                                  const_cast<value_type*>(g.m_x.data()),
+                                                                  g.m_x.size(),
+                                                                  input_dims.data(),
+                                                                  input_dims.size()));
+        }
+        {
+          PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXCreateTensor") ;
+          Ort::TypeInfo input_type_info = session->GetInputTypeInfo(1);
+          auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
+          std::vector<int64_t> input_dims = input_tensor_info.GetShape();
+          assert(input_dims.size()==2) ;
+          assert(input_dims[0]==2) ;
+          assert(input_dims[1]==-1) ;
+          input_dims[1]= g.m_total_nb_edges ;
+          /*
+          std::cout<<"NB EDGES : "<<g.m_total_nb_edges<<std::endl ;
+          std::cout<<"EDGE INDEX : "<<std::endl ;
+          for(int e=0;e<g.m_total_nb_edges;++e)
+          {
+            std::cout<<"EDGE["<<e<<"] : ["<<g.m_edge_index[e]<<","<<g.m_edge_index[e+g.m_total_nb_edges]<<"]"<<std::endl ;
+          }*/
+          input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info,
+                                                                    const_cast<int64_t*>(g.m_edge_index.data()),
+                                                                    g.m_edge_index.size(),
+                                                                    input_dims.data(),
+                                                                    input_dims.size()));
+        }
+        {
+          PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXCreateTensor") ;
+          Ort::TypeInfo input_type_info = session->GetInputTypeInfo(2);
+          auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
+          std::vector<int64_t> input_dims = input_tensor_info.GetShape();
+          assert(input_dims.size()==2) ;
+          assert(input_dims[0]==-1) ;
+          assert(input_dims[1]==3) ;
+          assert(g.m_edge_attr.size() == g.m_total_nb_edges*3) ;
+          input_dims[0] = g.m_total_nb_edges;
+          input_tensors.push_back(Ort::Value::CreateTensor<value_type>(memory_info,
+                                                                    const_cast<value_type*>(g.m_edge_attr.data()),
+                                                                    g.m_edge_attr.size(),
+                                                                    input_dims.data(),
+                                                                    input_dims.size()));
+        }
+        {
+          PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXCreateTensor") ;
+          Ort::TypeInfo input_type_info = session->GetInputTypeInfo(3);
+          auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
+          std::vector<int64_t> input_dims = input_tensor_info.GetShape();
+          assert(input_dims.size()==2) ;
+          assert(input_dims[0]==-1) ;
+          assert(input_dims[1]==1) ;
+          assert(g.m_y.size() == g.m_total_nb_vertices) ;
+          input_dims[0] = g.m_total_nb_vertices;
+          input_tensors.push_back(Ort::Value::CreateTensor<value_type>(memory_info,
+                                                                    const_cast<value_type*>(g.m_y.data()),
+                                                                    g.m_y.size(),
+                                                                    input_dims.data(),
+                                                                    input_dims.size()));
+        }
+
+
+        // output:
+        std::vector<Ort::Value> output_tensors;
+        {
+          PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXCreateTensor") ;
+          Ort::TypeInfo output_type_info = session->GetOutputTypeInfo(0);
+          auto output_tensor_info = output_type_info.GetTensorTypeAndShapeInfo();
+          std::vector<int64_t> output_dims = output_tensor_info.GetShape();
+          assert(output_dims.size()==2) ;
+          assert(output_dims[0]==-1) ;
+          assert(output_dims[1]==1) ;
+          output_dims[0] = g.m_total_nb_vertices ;
+
+          auto& prediction = predictions[icount++] ;
+          prediction.m_dim0 = g.m_total_nb_vertices ;
+          prediction.m_dim1 = 1 ;
+
+          prediction.m_values.resize(prediction.m_dim0 * prediction.m_dim1);
+          output_tensors.push_back(Ort::Value::CreateTensor<value_type>(memory_info,
+                                                                   prediction.m_values.data(),
+                                                                   prediction.m_values.size(),
+                                                                   output_dims.data(), output_dims.size()));
+        }
+
+
+        // serving names:
+        std::string input0_name = session->GetInputNameAllocated(0, Ort::AllocatorWithDefaultOptions()).get();
+        std::string input1_name = session->GetInputNameAllocated(1, Ort::AllocatorWithDefaultOptions()).get();
+        std::string input2_name = session->GetInputNameAllocated(2, Ort::AllocatorWithDefaultOptions()).get();
+        std::string input3_name = session->GetInputNameAllocated(3, Ort::AllocatorWithDefaultOptions()).get();
+
+        std::vector<const char*>  input_names{input0_name.c_str(),
+                                              input1_name.c_str(),
+                                              input2_name.c_str(),
+                                              input3_name.c_str()};
+        std::string output_name = session->GetOutputNameAllocated(0, Ort::AllocatorWithDefaultOptions()).get();
+        std::vector<const char*> output_names{output_name.c_str()};
+
+        std::cout<<" ONNX MODEL INFERENCE"<<std::endl ;
+       // model inference
+        PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXRun") ;
+        session->Run(Ort::RunOptions{nullptr},
+                     input_names.data(),
+                     input_tensors.data(), 4,
+                     output_names.data(),
+                     output_tensors.data(), 1);
+
+        std::cout<<"onnx inference ok"<<std::endl;
+
+      }
+  }
+  return predictions;
+}
+
+template<typename value_type, typename PTGraphT>
+std::vector<ml4cfd::PredictionT<value_type> >
+forwardRT(std::vector<PTGraphT>& graphs,
+          TRTEngine* trt_engine,
+          bool usegpu)
+{
+  std::cout<<"FORWARD : NB GRAPHS : "<<graphs.size()<<std::endl ;
+  std::vector<ml4cfd::PredictionT<value_type>> predictions(graphs.size()) ;
+
+  if (usegpu)
+  {
+    std::cerr<<"NOT YET IMPLEMENTED"<<std::endl ;
+  }
+  else
+  {
+      std::size_t icount = 0 ;
+      for(auto& g : graphs)
+      {
+        bool ok = trt_engine->build(g.m_total_nb_vertices,g.m_total_nb_edges) ;
+        if(!ok)
+        {
+           std::cerr<<"ENGINE BUILD FAILED"<<std::endl ;;
+        }
+        else
+        {
+          auto& prediction = predictions[icount++] ;
+          prediction.m_dim0 = g.m_total_nb_vertices ;
+          prediction.m_dim1 = 1 ;
+          prediction.m_values.resize(prediction.m_dim0 * prediction.m_dim1);
+          trt_engine->infer(g.m_x,
+                            g.m_edge_index,
+                            g.m_edge_attr,
+                            g.m_y,
+                            prediction.m_values,
+                            g.m_total_nb_vertices,
+                            g.m_total_nb_edges) ;
+
+          std::cout<<"tensorrt inference ok"<<std::endl;
+        }
+      }
+  }
+  return predictions;
+}
+
+
+
+std::vector<ml4cfd::PredictionT<float> >
+DSSSolver::_infer32(GraphData const& data, bool use_gpu, int nb_args, std::size_t batch_size)
+{
+  switch(m_backend_rt)
+  {
+    case Torch:
+    {
+      PerfCounterMngType::Sentry sentry(m_torch_internal->m_perf_mng,"Torch::Compute") ;
+      return infer(m_torch_internal->m_model, data.m_internal->m_pt_graph32_list, use_gpu,nb_args, batch_size) ;
+    }
+    case ONNX:
+    {
+      PerfCounterMngType::Sentry sentry(m_onnx_internal->m_perf_mng,"ONNX::Compute") ;
+      return forwardT<float,ONNXGraphT<float,int64_t>>(data.m_internal->m_onnx_graph32_list,
+                                                       m_onnx_internal->m_session.get(),
+                                                       use_gpu,
+                                                       m_internal->m_perf_mng) ;
+    }
+    case TensorRT:
+    {
+      PerfCounterMngType::Sentry sentry(m_tensorrt_internal->m_perf_mng,"TensorRT::Compute") ;
+      return forwardRT<float,ONNXGraphT<float,int>>(data.m_internal->m_trt_graph32_list,m_tensorrt_internal->m_trt_engine.get(),use_gpu) ;
+    }
+    default:
+      return std::vector<ml4cfd::PredictionT<float> >() ;
+  }
+}
+
+std::vector<ml4cfd::PredictionT<double> >
+DSSSolver::_infer64(GraphData const& data, bool use_gpu, int nb_args, std::size_t batch_size)
+{
+  switch(m_backend_rt)
+  {
+    case Torch:
+      return infer(m_torch_internal->m_model, data.m_internal->m_pt_graph64_list, use_gpu,nb_args, batch_size) ;
+    case ONNX:
+      return forwardT<double,ONNXGraphT<double,int64_t>>(data.m_internal->m_onnx_graph64_list,
+                                                         m_onnx_internal->m_session.get(),
+                                                         use_gpu,
+                                                         m_internal->m_perf_mng) ;
+    case TensorRT:
+      return forwardRT<double,ONNXGraphT<double,int>>(data.m_internal->m_trt_graph64_list,m_tensorrt_internal->m_trt_engine.get(),use_gpu) ;
+    default:
+      return std::vector<ml4cfd::PredictionT<double> >();
+  }
+}
+
 
 bool DSSSolver::solve(GraphData const& data, GraphResults& results)
 {
-  //std::cout<<"DSSSolver::solve : "<<data.m_internal->m_pt_graph32_list.size()<<std::endl ;
-  //std::cout<<"RESULTS : "<<results.m_prediction32_list.size()<<std::endl ;
-  //std::cout<<"BATCH SIZE : "<<data.m_batch_size<<std::endl ;
+  PerfCounterMngType::Sentry sentry(m_internal->m_perf_mng,"DSSSolver::Solve") ;
   switch(m_precision)
   {
     case Float32 :
     {
       results.m_normalize_factor = data.m_normalize_factor ;
       results.m_batch_size = data.m_batch_size ;
-      auto prediction32_list = std::move(infer(m_internal->m_model, data.m_internal->m_pt_graph32_list, m_use_gpu,0,data.m_batch_size));
+      auto prediction32_list = std::move(_infer32(data,m_use_gpu,0, data.m_batch_size));
       /*
       for(auto& pred : results.m_prediction32_list)
       {
@@ -997,11 +1628,13 @@ bool DSSSolver::solve(GraphData const& data, GraphResults& results)
       {
         case Float32 :
         {
+          PerfCounterMngType::Sentry sentry(m_internal->m_perf_mng,"DSSSolver::ComputeResults") ;
           results.computePreditionToResultsT(prediction32_list,results.m_result32_map) ;
         }
         break ;
         case Float64 :
         {
+          PerfCounterMngType::Sentry sentry(m_internal->m_perf_mng,"DSSSolver::ComputeResults") ;
           results.computePreditionToResultsT(prediction32_list,results.m_result64_map) ;
         }
         break ;
@@ -1013,7 +1646,7 @@ bool DSSSolver::solve(GraphData const& data, GraphResults& results)
     {
       results.m_normalize_factor = data.m_normalize_factor ;
       results.m_batch_size = data.m_batch_size ;
-      auto prediction64_list = std::move(infer(m_internal->m_model, data.m_internal->m_pt_graph64_list, m_use_gpu,0,data.m_batch_size));
+      auto prediction64_list = std::move(_infer64(data,m_use_gpu,0,data.m_batch_size));
        /*
       for(auto& pred : results.m_prediction64_list)
       {
@@ -1024,11 +1657,13 @@ bool DSSSolver::solve(GraphData const& data, GraphResults& results)
       {
         case Float32 :
         {
+          PerfCounterMngType::Sentry sentry(m_internal->m_perf_mng,"DSSSolver::ComputeResults") ;
           results.computePreditionToResultsT(prediction64_list,results.m_result32_map) ;
         }
         break ;
         case Float64 :
         {
+          PerfCounterMngType::Sentry sentry(m_internal->m_perf_mng,"DSSSolver::ComputeResults") ;
           results.computePreditionToResultsT(prediction64_list,results.m_result64_map) ;
         }
         break ;

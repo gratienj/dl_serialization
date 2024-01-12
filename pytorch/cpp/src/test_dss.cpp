@@ -12,7 +12,25 @@
 #include "ml4cfd/graph.h"
 #include "ml4cfd/internal/graphutils.h"
 #include "ml4cfd/internal/modelutils.h"
+#include "ml4cfd/internal/cnpy.h"
+#include "utils/PerfCounterMng.h"
 #include "ml4cfd/DSSSolver.h"
+
+
+#ifdef USE_TENSORRT
+#include "utils/9.2/argsParser.h"
+#include "utils/9.2/buffers.h"
+#include "utils/9.2/common.h"
+#include "utils/9.2/logger.h"
+#include "utils/9.2/parserOnnxConfig.h"
+
+#include "NvInfer.h"
+#include <cuda_runtime_api.h>
+using namespace nvinfer1;
+using samplesCommon::SampleUniquePtr;
+#endif
+
+#include "tensorrt/TRTEngineTester.h"
 
 
 #include <boost/program_options/options_description.hpp>
@@ -37,10 +55,13 @@ int main(int argc, char **argv)
     ("test-load-model", po::value<int>()->default_value(0), "test load model")
     ("test-inference",  po::value<int>()->default_value(0), "test inference")
     ("test-dss",        po::value<int>()->default_value(0), "test dss")
+    ("test-trt",        po::value<int>()->default_value(0), "test trt")
     ("json",            po::value<int>()->default_value(0), "use json format")
+    ("normalize",       po::value<int>()->default_value(1), "normalize data")
     ("batch-size",      po::value<int>()->default_value(1), "batch size")
     ("nb-graphs",       po::value<int>()->default_value(1), "nb graphs to load")
     ("niter"    ,       po::value<int>()->default_value(1), "nb iters")
+    ("backend",         po::value<std::string>(),           "backend")
     ("data-dir",        po::value<std::string>(),           "graph file path")
     ("graph-file",      po::value<std::string>(),           "graph file path")
     ("model-file",      po::value<std::string>(),           "model file path") ;
@@ -235,6 +256,7 @@ int main(int argc, char **argv)
 
       int batch_size = vm["batch-size"].as<int>() ;
       int nb_graphs = vm["nb-graphs"].as<int>() ;
+      std::string data_dir = vm["data-dir"].as<std::string>();
 
       std::string model_path = vm["model-file"].as<std::string>();
 
@@ -253,14 +275,28 @@ int main(int argc, char **argv)
         if(vm["json"].as<int>()==1)
         {
           //std::string graph_path = vm["graph-file"].as<std::string>();
-          std::stringstream graph_path;
-          graph_path<<"DDMGraphDSS_0IT_"<<i<<".json";
-          std::cout<<"LOAD JSON GRAPH : "<<graph_path.str()<<std::endl ;
-          loadFromJsonFile(graph,graph_path.str()) ;
+          std::stringstream case_dir;
+          case_dir<<"DDMGraphDSS_0IT_"<<i<<".json";
+
+          boost::filesystem::path root_path(data_dir.c_str());
+          std::string graph_path = (root_path / case_dir.str()).string() ;
+          std::cout<<"LOAD JSON GRAPH : "<<graph_path<<std::endl ;
+          loadFromJsonFile(graph,graph_path,"y") ;
+        }
+        if(vm["json"].as<int>()==2)
+        {
+          std::stringstream case_dir;
+          case_dir<<"sub_"<<i<<".json";
+
+          boost::filesystem::path root_path(data_dir.c_str());
+          boost::filesystem::path dom_path("0");
+
+          std::string graph_path = (root_path / dom_path / case_dir.str()).string() ;
+          std::cout<<"LOAD JSON GRAPH : "<<graph_path<<std::endl ;
+          loadFromJsonFile(graph,graph_path,"prb_data") ;
         }
         else
         {
-          std::string data_dir = vm["data-dir"].as<std::string>();
           std::stringstream case_dir;
           case_dir<<"CASE_"<<i;
           boost::filesystem::path root_path(data_dir.c_str());
@@ -282,8 +318,8 @@ int main(int argc, char **argv)
                        graph.m_y.data(),
                        graph.m_pos.data()) ;
         //data_loader.applyGraphCartesianTransform(graph_id) ;
-
-        data_loader.updateGraphVertexTagsData(graph_id,graph.m_tags.data(),graph.m_nb_vertices) ;
+        if(graph.m_tags.size()>0)
+          data_loader.updateGraphVertexTagsData(graph_id,graph.m_tags.data(),graph.m_nb_vertices) ;
         auto y_norm = data_loader.updateGraphPBRData(graph_id,graph.m_y.data(),graph.m_y.size()) ;
 
         std::cout<<"NORME B : "<<y_norm<<std::endl ;
@@ -300,18 +336,37 @@ int main(int argc, char **argv)
           auto& graph = graphs[i] ;
           ml4cfd::GraphT<float,int64_t> graph2 ;
 
+          if(vm["json"].as<int>()==1)
           {
-            //std::string graph_path = vm["graph-file"].as<std::string>();
-            std::stringstream graph_path;
-            graph_path<<"DDMGraphDSS_"<<it<<"IT_"<<i<<".json";
-            std::cout<<"LOAD JSON GRAPH : "<<graph_path.str()<<std::endl ;
-            loadFromJsonFile(graph2,graph_path.str()) ;
+            std::stringstream case_dir;
+            case_dir<<"DDMGraphDSS_"<<it<<"IT_"<<i<<".json";
+            boost::filesystem::path root_path(data_dir.c_str());
+            std::string graph_path = (root_path / case_dir.str()).string() ;
+            std::cout<<"LOAD JSON GRAPH : "<<graph_path<<std::endl ;
+            loadFromJsonFile(graph2,graph_path,"y") ;
           }
+          if(vm["json"].as<int>()==2)
+          {
+            std::stringstream case_dir;
+            case_dir<<"sub_"<<i<<".json";
+
+            boost::filesystem::path root_path(data_dir.c_str());
+            boost::filesystem::path dom_path("0");
+
+            std::string graph_path = (root_path / dom_path / case_dir.str()).string() ;
+            std::cout<<"LOAD JSON GRAPH : "<<graph_path<<std::endl ;
+            loadFromJsonFile(graph2,graph_path,"prb_data") ;
+          }
+          std::cout<<"updateGraphPBRData : "<<graph2.m_y.size()<<std::endl ;
           auto y_norm = data_loader.updateGraphPBRData(i,graph2.m_y.data(),graph2.m_y.size()) ;
         }
-        data_loader.normalizeData() ;
+
+        if(vm["normalize"].as<int>()==1)
+          data_loader.normalizeData() ;
         solver.solve(data_loader.data(),results) ;
         //results.computePreditionToResults() ;
+        float avg_mse = 0. ;
+        float max_mse = 0. ;
         for(int i=0;i<nb_graphs;++i)
         {
           auto& graph = graphs[i] ;
@@ -323,8 +378,61 @@ int main(int argc, char **argv)
             mse += d*d ;
             //std::cout<<"SOL["<<i<<"]"<<y[j]<<","<<graph.m_x[j]<<std::endl ;
           }
-          std::cout<<"MSE = "<<mse/y.size()<<std::endl;
+          mse /= y.size() ;
+          avg_mse += mse ;
+          max_mse = std::max(max_mse,mse) ;
+          std::cout<<"MSE = "<<mse<<std::endl;
         }
+        avg_mse /= nb_graphs ;
+        std::cout<<"MSE AVG MAX "<<avg_mse<<" "<<max_mse<<std::endl;
+      }
+    }
+
+    if(vm["test-trt"].as<int>() > 0 )
+    {
+
+      std::string model_path = vm["model-file"].as<std::string>();
+      std::cout<<"LOAD TRT MODEL : "<<model_path<<std::endl ;
+
+      int batch_size = vm["batch-size"].as<int>() ;
+
+      TRTEngineTester test(model_path,batch_size);
+
+
+      auto coords0 = cnpy::npy_load("coords0.npy") ;
+      auto coords0_dims = coords0.shape.size() ;
+      assert(coords0_dims == 2) ;
+      std::cout<<"COORDS0 DIMS : "<<coords0.shape<<std::endl ;
+      std::vector<float> c0(coords0.data<float>(),coords0.data<float>()+coords0.shape[1]) ;
+
+      auto coords1 = cnpy::npy_load("coords0.npy") ;
+      auto coords1_dims = coords1.shape.size() ;
+      assert(coords1_dims == 2) ;
+      std::cout<<"COORDS1 DIMS : "<<coords1.shape<<std::endl ;
+      std::vector<float> c1(coords1.data<float>(),coords1.data<float>()+coords1.shape[1]) ;
+
+      auto edge_to = cnpy::npy_load("edge_to.npy") ;
+      auto edge_to_dims = edge_to.shape.size() ;
+      assert(edge_to_dims == 2) ;
+      std::cout<<"EDGE TO DIMS : "<<edge_to.shape<<std::endl ;
+      std::vector<int> e0(edge_to.data<int>(),edge_to.data<int>()+edge_to.shape[1]) ;
+
+      auto edge_from = cnpy::npy_load("edge_from.npy") ;
+      auto edge_from_dims = edge_from.shape.size() ;
+      assert(edge_from_dims == 2) ;
+      std::cout<<"EDGE FROM DIMS : "<<edge_from.shape<<std::endl ;
+      std::vector<int> e1(edge_from.data<int>(),edge_from.data<int>()+edge_from.shape[1]) ;
+
+      int nb_vertices = coords0.shape[1] ;
+      int nb_edges = edge_to.shape[1] ;
+      std::vector<float> output(nb_vertices) ;
+      if (!test.build(nb_vertices, nb_edges))
+      {
+         std::cout<<"TRT UNIT TEST BUILD FAILED";
+      }
+      if (!test.infer(c0,c1,e0,e1,output,nb_vertices,nb_edges))
+      {
+         std::cout<<"TRT UNIT TEST INFER FAILED";
       }
     }
 

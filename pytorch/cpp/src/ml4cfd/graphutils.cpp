@@ -106,7 +106,7 @@ void loadFromFileT(GraphT<value_type,index_type>& graph,std::string const& dir_p
 }
 
 template<typename value_type, typename index_type>
-void loadFromJsonFileT(GraphT<value_type,index_type>& graph,std::string const& file_path)
+void loadFromJsonFileT(GraphT<value_type,index_type>& graph,std::string const& file_path, std::string b_name)
 {
     namespace pt = boost::property_tree;
 
@@ -161,8 +161,8 @@ void loadFromJsonFileT(GraphT<value_type,index_type>& graph,std::string const& f
         graph.m_nb_edge_attr = count / graph.m_nb_edges ;
     }
     {
-        std::cout<<"LOAD Y"<<std::endl ;
-        for (pt::ptree::value_type &y : root.get_child("y"))
+        std::cout<<"LOAD "<<b_name<<std::endl ;
+        for (pt::ptree::value_type &y : root.get_child(b_name.c_str()))
         {
             for (pt::ptree::value_type &d : y.second)
             {
@@ -173,37 +173,49 @@ void loadFromJsonFileT(GraphT<value_type,index_type>& graph,std::string const& f
     }
     {
         std::cout<<"LOAD POS"<<std::endl ;
-        for (pt::ptree::value_type &y : root.get_child("pos"))
+        auto i_pos = root.find("pos");
+        if(root.not_found() != i_pos)
         {
-            for (pt::ptree::value_type &d : y.second)
-            {
-               graph.m_pos.push_back(d.second.get_value<Graph::value_type>()) ;
-            }
+          for (pt::ptree::value_type &y : root.get_child("pos"))
+          {
+              for (pt::ptree::value_type &d : y.second)
+              {
+                 graph.m_pos.push_back(d.second.get_value<Graph::value_type>()) ;
+              }
+          }
+          graph.m_dim = graph.m_pos.size()/graph.m_nb_vertices ;
         }
-        graph.m_dim = graph.m_pos.size()/graph.m_nb_vertices ;
     }
     {
       std::cout<<"LOAD TAGS"<<std::endl ;
-      graph.m_tags.resize(0) ;
-      graph.m_tags.reserve(graph.m_nb_vertices) ;
-      for (pt::ptree::value_type &x : root.get_child("tags"))
+      auto i_tags = root.find("tags");
+      if(root.not_found() != i_tags)
       {
-          for (pt::ptree::value_type &d : x.second)
-          {
-             graph.m_tags.push_back(d.second.get_value<int>()) ;
-          }
+        graph.m_tags.resize(0) ;
+        graph.m_tags.reserve(graph.m_nb_vertices) ;
+        for (pt::ptree::value_type &x : root.get_child("tags"))
+        {
+            for (pt::ptree::value_type &d : x.second)
+            {
+               graph.m_tags.push_back(d.second.get_value<int>()) ;
+            }
+        }
       }
     }
     {
       std::cout<<"LOAD AIJ"<<std::endl ;
-      graph.m_aij.resize(0) ;
-      graph.m_aij.reserve(graph.m_nb_edges) ;
-      for (pt::ptree::value_type &x : root.get_child("aij"))
+      auto i_aij = root.find("aij");
+      if(root.not_found() != i_aij)
       {
-          for (pt::ptree::value_type &d : x.second)
-          {
-             graph.m_aij.push_back(d.second.get_value<Graph::value_type>()) ;
-          }
+        graph.m_aij.resize(0) ;
+        graph.m_aij.reserve(graph.m_nb_edges) ;
+        for (pt::ptree::value_type &x : root.get_child("aij"))
+        {
+            for (pt::ptree::value_type &d : x.second)
+            {
+               graph.m_aij.push_back(d.second.get_value<Graph::value_type>()) ;
+            }
+        }
       }
     }
 }
@@ -220,15 +232,15 @@ void loadFromFile(GraphT<float,int64_t>& graph,std::string const& dir_path)
   loadFromFileT<float,int64_t>(graph,dir_path) ;
 }
 
-void loadFromJsonFile(Graph& graph,std::string const& dir_path)
+void loadFromJsonFile(Graph& graph,std::string const& dir_path, std::string b_name)
 {
-  loadFromJsonFileT<double>(graph,dir_path) ;
+  loadFromJsonFileT<double>(graph,dir_path,b_name) ;
 }
 
 
-void loadFromJsonFile(GraphT<float,int64_t>& graph,std::string const& dir_path)
+void loadFromJsonFile(GraphT<float,int64_t>& graph,std::string const& dir_path, std::string b_name)
 {
-  loadFromJsonFileT<float,int64_t>(graph,dir_path) ;
+  loadFromJsonFileT<float,int64_t>(graph,dir_path,b_name) ;
 }
 
 
@@ -863,7 +875,7 @@ void convertGraph2PTGraph(GraphT<float,int64_t>* begin, int batch_size, PTGraphT
 
 void updateGraph2PTGraphData(GraphT<float,int64_t>* begin, int batch_size, PTGraphT<float,int64_t>& pt_graph)
 {
-   //std::cout<<"UPDATE BATCH TO PTGRAPH : "<<batch_size<<std::endl ;
+   std::cout<<"UPDATE BATCH TO PTGRAPH : "<<batch_size<<" "<<pt_graph.m_y_is_updated<<std::endl ;
    std::vector<GraphT<float,int64_t>::value_type> x ;
    std::vector<GraphT<float,int64_t>::value_type> y ;
    int64_t nb_total_vertices = 0 ;
@@ -900,14 +912,16 @@ void updateGraph2PTGraphData(GraphT<float,int64_t>* begin, int batch_size, PTGra
    }
    if(!pt_graph.m_x_is_updated)
    {
+       std::cout<<"UPDATE PTGRAPH X"<<std::endl ;
        std::vector<int64_t> dims = { nb_total_vertices, nb_vertex_attr};
        torch::TensorOptions options(torch::kFloat32);
        pt_graph.m_x = torch::from_blob(x.data(), torch::IntList(dims), options).clone();
        pt_graph.m_x_device = torch::Device(torch::kCPU) ;
        pt_graph.m_x_is_updated = true ;
    }
-   if(pt_graph.m_y_is_updated)
+   if(!pt_graph.m_y_is_updated)
    {
+       std::cout<<"UPDATE PTGRAPH Y"<<std::endl ;
        std::vector<int64_t> dims = { nb_total_vertices, y_size};
        torch::TensorOptions options(torch::kFloat32);
        pt_graph.m_y = torch::from_blob(y.data(), torch::IntList(dims), options).clone();
@@ -930,6 +944,267 @@ void assignPTGraphToRandn(PTGraph& pt_graph, int64_t dim0, int64_t dim1)
    std::vector<int64_t> dims = {1, dim0, dim1};
    torch::TensorOptions options(torch::kFloat64);
    pt_graph.m_x = torch::randn(dims,options).clone() ;
+}
+
+template<typename ValueT, typename IndexType, typename ONNXIndexType>
+void convertGraph2PTGraphT(GraphT<ValueT,IndexType>* begin, int batch_size, ONNXGraphT<ValueT,ONNXIndexType>& onnx_graph)
+{
+   //std::cout<<"CONVERT BATCH TO PTGRAPH : "<<batch_size<<std::endl ;
+   int64_t nb_total_vertices = 0 ;
+   int64_t nb_total_edges    = 0 ;
+   int64_t nb_vertex_attr    = (*begin).m_nb_vertex_attr ;
+   int64_t nb_edge_attr      = (*begin).m_nb_edge_attr ;
+   int64_t y_size            = (*begin).m_y_size ;
+   GraphT<ValueT,IndexType>* ptr = begin ;
+   for(int i=0;i<batch_size;++i)
+   {
+       auto const& g = *(ptr++) ;
+       nb_total_vertices += g.m_nb_vertices ;
+       nb_total_edges += g.m_nb_edges ;
+       assert(g.m_nb_vertex_attr == nb_vertex_attr) ;
+       assert(g.m_nb_edge_attr == nb_edge_attr) ;
+   }
+   onnx_graph.m_total_nb_vertices = nb_total_vertices ;
+   onnx_graph.m_total_nb_edges = nb_total_edges ;
+   onnx_graph.m_batch.resize(nb_total_vertices) ;
+   onnx_graph.m_x.reserve(nb_total_vertices*nb_vertex_attr) ;
+   onnx_graph.m_edge_index.resize(2*nb_total_edges) ;
+   onnx_graph.m_edge_attr.reserve(nb_total_edges*nb_edge_attr) ;
+   onnx_graph.m_y.reserve(batch_size*y_size) ;
+   int index = 0 ;
+   int vertex_offset = 0 ;
+   int edge_offset = 0 ;
+
+   ptr = begin ;
+   for(int i=0;i<batch_size;++i)
+   {
+        //std::cout<<"BATCH["<<i<<"]"<<std::endl ;
+        auto const& g = *(ptr++) ;
+        for(int j=0;j<g.m_nb_vertices;++j)
+          onnx_graph.m_batch[vertex_offset+j] = index++ ;
+        //std::cout<<"GRAPH X SIZE :"<<g.m_x.size()<<std::endl ;
+        for(auto v : g.m_x)
+        {
+          onnx_graph.m_x.push_back(v) ;
+        }
+
+        for(int j=0;j<g.m_nb_edges;++j)
+        {
+          onnx_graph.m_edge_index[edge_offset+j] = vertex_offset+ g.m_edge_index[j] ;
+          onnx_graph.m_edge_index[nb_total_edges+edge_offset+j] = vertex_offset+ g.m_edge_index[g.m_nb_edges+j] ;
+            //std::cout<<"EDGE INDEX["<<j<<"]:("<<g.m_edge_index[j]<<" "<<g.m_edge_index[g.m_nb_edges+j]<<")("<<edge_index[edge_offset+j]<<" "<<edge_index[nb_total_edges+edge_offset+j]<<")"<<std::endl ;
+        }
+
+        for(auto v : g.m_edge_attr)
+        {
+          onnx_graph.m_edge_attr.push_back(v) ;
+        }
+        //std::cout<<"GRAPH Y SIZE :"<<g.m_y.size()<<std::endl ;
+        for(auto v : g.m_y)
+        {
+          onnx_graph.m_y.push_back(v) ;
+        }
+        vertex_offset += g.m_nb_vertices ;
+        edge_offset   += g.m_nb_edges ;
+   }
+}
+
+template<typename ValueT, typename IndexType, typename ONNXIndexType>
+void updateGraph2PTGraphDataT(GraphT<ValueT,IndexType>* begin, int batch_size, ONNXGraphT<ValueT,ONNXIndexType>& onnx_graph)
+{
+   std::cout<<"UPDATE BATCH TO ONNXGRAPH : "<<batch_size<<" "<<onnx_graph.m_y_is_updated<<std::endl ;
+   int64_t nb_vertex_attr    = (*begin).m_nb_vertex_attr ;
+   int64_t nb_edge_attr      = (*begin).m_nb_edge_attr ;
+   int64_t y_size            = (*begin).m_y_size ;
+   if(!onnx_graph.m_x_is_updated)
+   {
+     onnx_graph.m_x.resize(0) ;
+   }
+   if(!onnx_graph.m_y_is_updated)
+   {
+     onnx_graph.m_y.resize(0) ;
+   }
+   GraphT<ValueT,IndexType>* ptr = begin ;
+   for(int i=0;i<batch_size;++i)
+   {
+        auto const& g = *(ptr++) ;
+        if(!onnx_graph.m_x_is_updated)
+        {
+          for(auto v : g.m_x)
+          {
+            onnx_graph.m_x.push_back(v) ;
+          }
+        }
+        if(!onnx_graph.m_y_is_updated)
+        {
+          for(auto v : g.m_y)
+          {
+            onnx_graph.m_y.push_back(v) ;
+          }
+        }
+   }
+}
+
+void convertGraph2PTGraph(GraphT<float,int64_t>* begin, int batch_size, ONNXGraphT<float,int64_t>& onnx_graph)
+{
+  convertGraph2PTGraphT<float,int64_t,int64_t>(begin,batch_size,onnx_graph) ;
+}
+
+void convertGraph2PTGraph(GraphT<float,int64_t>* begin, int batch_size, ONNXGraphT<float,int>& onnx_graph)
+{
+  convertGraph2PTGraphT<float,int64_t,int>(begin,batch_size,onnx_graph) ;
+}
+
+void convertGraph2PTGraph(GraphT<double,int64_t>* begin, int batch_size, ONNXGraphT<double,int64_t>& onnx_graph)
+{
+  convertGraph2PTGraphT<double,int64_t,int64_t>(begin,batch_size,onnx_graph) ;
+}
+
+void convertGraph2PTGraph(GraphT<double,int64_t>* begin, int batch_size, ONNXGraphT<double,int>& onnx_graph)
+{
+  convertGraph2PTGraphT<double,int64_t,int>(begin,batch_size,onnx_graph) ;
+}
+
+
+void updateGraph2PTGraphData(GraphT<float,int64_t>* begin, int batch_size, ONNXGraphT<float,int64_t>& onnx_graph)
+{
+  return updateGraph2PTGraphDataT<float,int64_t,int64_t>(begin,batch_size,onnx_graph) ;
+}
+
+void updateGraph2PTGraphData(GraphT<float,int64_t>* begin, int batch_size, ONNXGraphT<float,int>& onnx_graph)
+{
+  return updateGraph2PTGraphDataT<float,int64_t,int>(begin,batch_size,onnx_graph) ;
+}
+
+void updateGraph2PTGraphData(GraphT<double,int64_t>* begin, int batch_size, ONNXGraphT<double,int64_t>& onnx_graph)
+{
+  return updateGraph2PTGraphDataT<double,int64_t,int64_t>(begin,batch_size,onnx_graph) ;
+}
+
+void updateGraph2PTGraphData(GraphT<double,int64_t>* begin, int batch_size, ONNXGraphT<double,int>& onnx_graph)
+{
+  return updateGraph2PTGraphDataT<double,int64_t,int>(begin,batch_size,onnx_graph) ;
+}
+
+
+template<typename ValueT>
+void convertGraph2PTGraphT(GraphT<ValueT,int64_t>* begin, int batch_size, TensorRTGraphT<ValueT,int64_t>& onnx_graph)
+{
+   //std::cout<<"CONVERT BATCH TO PTGRAPH : "<<batch_size<<std::endl ;
+   std::vector<int64_t>           batch;
+   int64_t nb_total_vertices = 0 ;
+   int64_t nb_total_edges    = 0 ;
+   int64_t nb_vertex_attr    = (*begin).m_nb_vertex_attr ;
+   int64_t nb_edge_attr      = (*begin).m_nb_edge_attr ;
+   int64_t y_size            = (*begin).m_y_size ;
+   GraphT<ValueT,int64_t>* ptr = begin ;
+   for(int i=0;i<batch_size;++i)
+   {
+       auto const& g = *(ptr++) ;
+       nb_total_vertices += g.m_nb_vertices ;
+       nb_total_edges += g.m_nb_edges ;
+       assert(g.m_nb_vertex_attr == nb_vertex_attr) ;
+       assert(g.m_nb_edge_attr == nb_edge_attr) ;
+   }
+   onnx_graph.m_total_nb_vertices = nb_total_vertices ;
+   onnx_graph.m_total_nb_edges = nb_total_edges ;
+   onnx_graph.m_batch.resize(nb_total_vertices) ;
+   onnx_graph.m_x.reserve(nb_total_vertices*nb_vertex_attr) ;
+   onnx_graph.m_edge_index.resize(2*nb_total_edges) ;
+   onnx_graph.m_edge_attr.reserve(nb_total_edges*nb_edge_attr) ;
+   onnx_graph.m_y.reserve(batch_size*y_size) ;
+   int index = 0 ;
+   int vertex_offset = 0 ;
+   int edge_offset = 0 ;
+
+   ptr = begin ;
+   for(int i=0;i<batch_size;++i)
+   {
+        //std::cout<<"BATCH["<<i<<"]"<<std::endl ;
+        auto const& g = *(ptr++) ;
+        for(int j=0;j<g.m_nb_vertices;++j)
+          onnx_graph.m_batch[vertex_offset+j] = index++ ;
+        //std::cout<<"GRAPH X SIZE :"<<g.m_x.size()<<std::endl ;
+        for(auto v : g.m_x)
+        {
+          onnx_graph.m_x.push_back(v) ;
+        }
+
+        for(int j=0;j<g.m_nb_edges;++j)
+        {
+          onnx_graph.m_edge_index[edge_offset+j] = vertex_offset+ g.m_edge_index[j] ;
+          onnx_graph.m_edge_index[nb_total_edges+edge_offset+j] = vertex_offset+ g.m_edge_index[g.m_nb_edges+j] ;
+            //std::cout<<"EDGE INDEX["<<j<<"]:("<<g.m_edge_index[j]<<" "<<g.m_edge_index[g.m_nb_edges+j]<<")("<<edge_index[edge_offset+j]<<" "<<edge_index[nb_total_edges+edge_offset+j]<<")"<<std::endl ;
+        }
+
+        for(auto v : g.m_edge_attr)
+        {
+          onnx_graph.m_edge_attr.push_back(v) ;
+        }
+        //std::cout<<"GRAPH Y SIZE :"<<g.m_y.size()<<std::endl ;
+        for(auto v : g.m_y)
+        {
+          onnx_graph.m_y.push_back(v) ;
+        }
+        vertex_offset += g.m_nb_vertices ;
+        edge_offset   += g.m_nb_edges ;
+   }
+}
+
+template<typename ValueT>
+void updateGraph2PTGraphDataT(GraphT<ValueT,int64_t>* begin, int batch_size, TensorRTGraphT<ValueT,int64_t>& onnx_graph)
+{
+   std::cout<<"UPDATE BATCH TO ONNXGRAPH : "<<batch_size<<" "<<onnx_graph.m_y_is_updated<<std::endl ;
+   int64_t nb_vertex_attr    = (*begin).m_nb_vertex_attr ;
+   int64_t nb_edge_attr      = (*begin).m_nb_edge_attr ;
+   int64_t y_size            = (*begin).m_y_size ;
+   if(!onnx_graph.m_x_is_updated)
+   {
+     onnx_graph.m_x.resize(0) ;
+   }
+   if(!onnx_graph.m_y_is_updated)
+   {
+     onnx_graph.m_y.resize(0) ;
+   }
+   GraphT<ValueT,int64_t>* ptr = begin ;
+   for(int i=0;i<batch_size;++i)
+   {
+        auto const& g = *(ptr++) ;
+        if(!onnx_graph.m_x_is_updated)
+        {
+          for(auto v : g.m_x)
+          {
+            onnx_graph.m_x.push_back(v) ;
+          }
+        }
+        if(!onnx_graph.m_y_is_updated)
+        {
+          for(auto v : g.m_y)
+          {
+            onnx_graph.m_y.push_back(v) ;
+          }
+        }
+   }
+}
+
+void convertGraph2PTGraph(GraphT<float,int64_t>* begin, int batch_size, TensorRTGraphT<float,int64_t>& onnx_graph)
+{
+  convertGraph2PTGraphT(begin,batch_size,onnx_graph) ;
+}
+
+void convertGraph2PTGraph(GraphT<double,int64_t>* begin, int batch_size, TensorRTGraphT<double,int64_t>& onnx_graph)
+{
+  convertGraph2PTGraphT(begin,batch_size,onnx_graph) ;
+}
+
+void updateGraph2PTGraphData(GraphT<float,int64_t>* begin, int batch_size, TensorRTGraphT<float,int64_t>& onnx_graph)
+{
+  return updateGraph2PTGraphDataT(begin,batch_size,onnx_graph) ;
+}
+
+void updateGraph2PTGraphData(GraphT<double,int64_t>* begin, int batch_size, TensorRTGraphT<double,int64_t>& onnx_graph)
+{
+  return updateGraph2PTGraphDataT(begin,batch_size,onnx_graph) ;
 }
 
 }

@@ -49,14 +49,14 @@ public :
 void loadFromFile(GraphT<double,int64_t>& graph,std::string const& path) ;
 void loadFromFile(GraphT<float,int64_t>& graph,std::string const& path) ;
 
-void loadFromJsonFile(GraphT<double,int64_t>& graph,std::string const& path) ;
-void loadFromJsonFile(GraphT<float,int64_t>& graph,std::string const& path) ;
+void loadFromJsonFile(GraphT<double,int64_t>& graph,std::string const& path, std::string b_name) ;
+void loadFromJsonFile(GraphT<float,int64_t>& graph,std::string const& path, std::string b_name) ;
 
 template<typename ValueT, typename IndexT>
 void loadFromFileT(GraphT<ValueT,IndexT>& graph,std::string const& path) ;
 
 template<typename ValueT, typename IndexT>
-void loadFromJsonFileT(GraphT<ValueT,IndexT>& graph,std::string const& path) ;
+void loadFromJsonFileT(GraphT<ValueT,IndexT>& graph,std::string const& path, std::string b_name) ;
 
 }
 

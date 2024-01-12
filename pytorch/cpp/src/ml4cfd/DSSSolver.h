@@ -12,6 +12,9 @@
 
 namespace ml4cfd {
 
+  template<typename ValueT>
+  struct PredictionT ;
+
   class GraphData ;
 
   class GraphResults ;
@@ -24,11 +27,22 @@ namespace ml4cfd {
       Float64
     } ePrecType ;
 
-    DSSSolver();
+    typedef enum {
+      ONNX,
+      TensorRT,
+      Torch
+    } eBackEndRT ;
+
+    DSSSolver() ;
+
     virtual ~DSSSolver();
 
     ePrecType precision() const {
       return m_precision ;
+    }
+
+    eBackEndRT backEndRT() const {
+      return m_backend_rt ;
     }
 
     bool useGpu() const {
@@ -52,7 +66,7 @@ namespace ml4cfd {
     }
 
 
-    void init(std::string const& model_path,ePrecType prec, bool use_gpu) ;
+    void init(std::string const& model_path,ePrecType prec, eBackEndRT backend_rt, bool use_gpu) ;
 
     void initFromConfigFile(std::string const& config_path) ;
 
@@ -62,21 +76,35 @@ namespace ml4cfd {
     bool solve(GraphData const& data, GraphResults& results) ;
 
   private :
+    std::vector<ml4cfd::PredictionT<float> >
+    _infer32(GraphData const& data, bool use_gpu, int nb_args, std::size_t batch_size) ;
+
+    std::vector<ml4cfd::PredictionT<double> >
+    _infer64(GraphData const& data, bool use_gpu, int nb_args, std::size_t batch_size) ;
+
     struct Internal ;
-    std::unique_ptr<Internal> m_internal;
+    struct TorchInternal ;
+    struct ONNXInternal ;
+    struct TensorRTInternal ;
+    std::unique_ptr<Internal>         m_internal;
+    std::unique_ptr<TorchInternal>    m_torch_internal;
+    std::unique_ptr<ONNXInternal>     m_onnx_internal;
+    std::unique_ptr<TensorRTInternal> m_tensorrt_internal;
+
     ePrecType m_precision = Float32 ;
+    eBackEndRT m_backend_rt = Torch ;
     bool m_use_gpu = false ;
     std::size_t m_batch_size = 1 ;
     double m_model_factor = 1. ;
     double m_dataset_mean = 0. ;
     double m_dataset_std = 1. ;
-
   };
 
   class GraphDataLoader
   {
   public:
     struct Internal ;
+
     GraphDataLoader(DSSSolver const& solver, std::size_t batch_size= 0 ) ;
     virtual ~GraphDataLoader() ;
     std::size_t  createNewGraph() ;
@@ -194,12 +222,14 @@ namespace ml4cfd {
 
     DSSSolver const& m_parent;
     DSSSolver::ePrecType m_precision = DSSSolver::Float32 ;
+    DSSSolver::eBackEndRT m_backend_rt = DSSSolver::Torch ;
     bool m_use_gpu = false ;
     std::size_t m_batch_size = 1 ;
     double m_dataset_mean = 0. ;
     double m_dataset_std = 1. ;
     double m_normalize_factor = 1. ;
     std::unique_ptr<Internal> m_internal ;
+
   };
 
   class GraphData

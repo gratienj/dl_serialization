@@ -29,15 +29,16 @@ using namespace carnot ;
 #endif
 
 #ifdef USE_ONNX
-#include <onnxruntime/core/session/onnxruntime_cxx_api.h>
+//#include <onnxruntime/core/session/onnxruntime_cxx_api.h>
+#include <onnxruntime_cxx_api.h>
 #endif
 
 #ifdef USE_TENSORRT
-#include "utils/argsParser.h"
-#include "utils/buffers.h"
-#include "utils/common.h"
-#include "utils/logger.h"
-#include "utils/parserOnnxConfig.h"
+#include "utils/9.2/argsParser.h"
+#include "utils/9.2/buffers.h"
+#include "utils/9.2/common.h"
+#include "utils/9.2/logger.h"
+#include "utils/9.2/parserOnnxConfig.h"
 #include "NvInfer.h"
 
 using namespace nvinfer1;
