@@ -1098,7 +1098,7 @@ void DSSSolver::init(std::string const& model_path, ePrecType prec, eBackEndRT b
   m_backend_rt = backend_rt ;
   m_use_gpu = use_gpu ;
   m_internal.reset(new Internal) ;
-  m_internal->m_perf_mng.init("DSSSolver::ComputeResults") ;
+  m_internal->m_perf_mng.init("DSS::ComputeResults") ;
   m_internal->m_perf_mng.init("DSSSolver::Solve") ;
   switch(m_backend_rt)
   {
@@ -1115,8 +1115,8 @@ void DSSSolver::init(std::string const& model_path, ePrecType prec, eBackEndRT b
       break ;
     case ONNX :
       {
-        m_internal->m_perf_mng.init("DSSSolver::ONNXCreateTensor") ;
-        m_internal->m_perf_mng.init("DSSSolver::ONNXRun") ;
+        m_internal->m_perf_mng.init("DSS::CreateTensor") ;
+        m_internal->m_perf_mng.init("DSS::ONNXRun") ;
         m_onnx_internal.reset(new ONNXInternal) ;
         m_onnx_internal->m_perf_mng.init("ONNX::Init") ;
         m_onnx_internal->m_perf_mng.init("ONNX::Prepare") ;
@@ -1253,7 +1253,7 @@ forwardT(std::vector<PTGraphT>& graphs,
       // input:
       std::vector<Ort::Value> input_tensors;
       {
-        PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXCreateTensor") ;
+        PerfCounterMngType::Sentry sentry(perf_mng,"DSS::CreateTensor") ;
         Ort::TypeInfo input_type_info = session->GetInputTypeInfo(0);
         auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
         std::vector<int64_t> input_dims = input_tensor_info.GetShape();
@@ -1270,7 +1270,7 @@ forwardT(std::vector<PTGraphT>& graphs,
                                                                 input_dims.size()));
       }
       {
-        PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXCreateTensor") ;
+        PerfCounterMngType::Sentry sentry(perf_mng,"DSS::CreateTensor") ;
         Ort::TypeInfo input_type_info = session->GetInputTypeInfo(1);
         auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
         std::vector<int64_t> input_dims = input_tensor_info.GetShape();
@@ -1292,7 +1292,7 @@ forwardT(std::vector<PTGraphT>& graphs,
                                                                   input_dims.size()));
       }
       {
-        PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXCreateTensor") ;
+        PerfCounterMngType::Sentry sentry(perf_mng,"DSS::CreateTensor") ;
         Ort::TypeInfo input_type_info = session->GetInputTypeInfo(2);
         auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
         std::vector<int64_t> input_dims = input_tensor_info.GetShape();
@@ -1308,7 +1308,7 @@ forwardT(std::vector<PTGraphT>& graphs,
                                                                   input_dims.size()));
       }
       {
-        PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXCreateTensor") ;
+        PerfCounterMngType::Sentry sentry(perf_mng,"DSS::CreateTensor") ;
         Ort::TypeInfo input_type_info = session->GetInputTypeInfo(3);
         auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
         std::vector<int64_t> input_dims = input_tensor_info.GetShape();
@@ -1328,7 +1328,7 @@ forwardT(std::vector<PTGraphT>& graphs,
       // output:
       std::vector<Ort::Value> output_tensors;
       {
-        PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXCreateTensor") ;
+        PerfCounterMngType::Sentry sentry(perf_mng,"DSS::CreateTensor") ;
         Ort::TypeInfo output_type_info = session->GetOutputTypeInfo(0);
         auto output_tensor_info = output_type_info.GetTensorTypeAndShapeInfo();
         std::vector<int64_t> output_dims = output_tensor_info.GetShape();
@@ -1363,7 +1363,7 @@ forwardT(std::vector<PTGraphT>& graphs,
       std::vector<const char*> output_names{output_name.c_str()};
 
       std::cout<<" ONNX MODEL INFERENCE ON GPU"<<std::endl ;
-      PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXRun") ;
+      PerfCounterMngType::Sentry sentry(perf_mng,"DSS::ONNXRun") ;
      // model inference
       session->Run(Ort::RunOptions{nullptr},
                    input_names.data(),
@@ -1388,7 +1388,7 @@ forwardT(std::vector<PTGraphT>& graphs,
         // input:
         std::vector<Ort::Value> input_tensors;
         {
-          PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXCreateTensor") ;
+          PerfCounterMngType::Sentry sentry(perf_mng,"DSS::CreateTensor") ;
           Ort::TypeInfo input_type_info = session->GetInputTypeInfo(0);
           auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
           std::vector<int64_t> input_dims = input_tensor_info.GetShape();
@@ -1405,7 +1405,7 @@ forwardT(std::vector<PTGraphT>& graphs,
                                                                   input_dims.size()));
         }
         {
-          PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXCreateTensor") ;
+          PerfCounterMngType::Sentry sentry(perf_mng,"DSS::CreateTensor") ;
           Ort::TypeInfo input_type_info = session->GetInputTypeInfo(1);
           auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
           std::vector<int64_t> input_dims = input_tensor_info.GetShape();
@@ -1427,7 +1427,7 @@ forwardT(std::vector<PTGraphT>& graphs,
                                                                     input_dims.size()));
         }
         {
-          PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXCreateTensor") ;
+          PerfCounterMngType::Sentry sentry(perf_mng,"DSS::CreateTensor") ;
           Ort::TypeInfo input_type_info = session->GetInputTypeInfo(2);
           auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
           std::vector<int64_t> input_dims = input_tensor_info.GetShape();
@@ -1443,7 +1443,7 @@ forwardT(std::vector<PTGraphT>& graphs,
                                                                     input_dims.size()));
         }
         {
-          PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXCreateTensor") ;
+          PerfCounterMngType::Sentry sentry(perf_mng,"DSS::CreateTensor") ;
           Ort::TypeInfo input_type_info = session->GetInputTypeInfo(3);
           auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
           std::vector<int64_t> input_dims = input_tensor_info.GetShape();
@@ -1463,7 +1463,7 @@ forwardT(std::vector<PTGraphT>& graphs,
         // output:
         std::vector<Ort::Value> output_tensors;
         {
-          PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXCreateTensor") ;
+          PerfCounterMngType::Sentry sentry(perf_mng,"DSS::CreateTensor") ;
           Ort::TypeInfo output_type_info = session->GetOutputTypeInfo(0);
           auto output_tensor_info = output_type_info.GetTensorTypeAndShapeInfo();
           std::vector<int64_t> output_dims = output_tensor_info.GetShape();
@@ -1499,7 +1499,7 @@ forwardT(std::vector<PTGraphT>& graphs,
 
         std::cout<<" ONNX MODEL INFERENCE"<<std::endl ;
        // model inference
-        PerfCounterMngType::Sentry sentry(perf_mng,"DSSSolver::ONNXRun") ;
+        PerfCounterMngType::Sentry sentry(perf_mng,"DSS::ONNXRun") ;
         session->Run(Ort::RunOptions{nullptr},
                      input_names.data(),
                      input_tensors.data(), 4,
@@ -1628,13 +1628,13 @@ bool DSSSolver::solve(GraphData const& data, GraphResults& results)
       {
         case Float32 :
         {
-          PerfCounterMngType::Sentry sentry(m_internal->m_perf_mng,"DSSSolver::ComputeResults") ;
+          PerfCounterMngType::Sentry sentry(m_internal->m_perf_mng,"DSS::ComputeResults") ;
           results.computePreditionToResultsT(prediction32_list,results.m_result32_map) ;
         }
         break ;
         case Float64 :
         {
-          PerfCounterMngType::Sentry sentry(m_internal->m_perf_mng,"DSSSolver::ComputeResults") ;
+          PerfCounterMngType::Sentry sentry(m_internal->m_perf_mng,"DSS::ComputeResults") ;
           results.computePreditionToResultsT(prediction32_list,results.m_result64_map) ;
         }
         break ;
@@ -1657,13 +1657,13 @@ bool DSSSolver::solve(GraphData const& data, GraphResults& results)
       {
         case Float32 :
         {
-          PerfCounterMngType::Sentry sentry(m_internal->m_perf_mng,"DSSSolver::ComputeResults") ;
+          PerfCounterMngType::Sentry sentry(m_internal->m_perf_mng,"DSS::ComputeResults") ;
           results.computePreditionToResultsT(prediction64_list,results.m_result32_map) ;
         }
         break ;
         case Float64 :
         {
-          PerfCounterMngType::Sentry sentry(m_internal->m_perf_mng,"DSSSolver::ComputeResults") ;
+          PerfCounterMngType::Sentry sentry(m_internal->m_perf_mng,"DSS::ComputeResults") ;
           results.computePreditionToResultsT(prediction64_list,results.m_result64_map) ;
         }
         break ;
