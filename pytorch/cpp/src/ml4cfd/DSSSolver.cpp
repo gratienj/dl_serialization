@@ -969,12 +969,12 @@ computePreditionToResultsT(std::vector<PredictionT<value1_type>> const& predicti
       for(int k=0;k<y.m_restricted_size;++k)
       {
         value2_type val = pred.m_values[offset+k]*m_normalize_factor ;
-        y.m_values[k] = val ;
 #ifdef DEBUG
         value2_type ref = y.m_values[k] ;
         value2_type d = ref - val ;
         mse += d*d ;
 #endif
+        y.m_values[k] = val ;
         //std::cout<<"   SOL["<<k<<"]="<<y.m_values[k]<<","<<ref<<","<<pred.m_values[offset+k]<<" factor="<<m_normalize_factor<<std::endl ;
         //std::cout<<"   SOL["<<k<<"]="<<y.m_values[k]<<","<<ref<<std::endl ;
       }
@@ -1035,6 +1035,7 @@ struct DSSSolver::Internal
 struct DSSSolver::TorchInternal
 {
   torch::jit::script::Module m_model ;
+  int m_torch_count = 0 ;
   mutable PerfCounterMng<std::string> m_perf_mng ;
 } ;
 
@@ -1099,7 +1100,7 @@ void DSSSolver::init(std::string const& model_path, ePrecType prec, eBackEndRT b
   m_use_gpu = use_gpu ;
   m_internal.reset(new Internal) ;
   m_internal->m_perf_mng.init("DSS::ComputeResults") ;
-  m_internal->m_perf_mng.init("DSSSolver::Solve") ;
+  m_internal->m_perf_mng.init("DSS::Solve") ;
   switch(m_backend_rt)
   {
     case Torch :
@@ -1107,6 +1108,7 @@ void DSSSolver::init(std::string const& model_path, ePrecType prec, eBackEndRT b
         m_torch_internal.reset(new TorchInternal) ;
         m_torch_internal->m_perf_mng.init("Torch::Init") ;
         m_torch_internal->m_perf_mng.init("Torch::Prepare") ;
+        m_torch_internal->m_perf_mng.init("Torch::Compute0") ;
         m_torch_internal->m_perf_mng.init("Torch::Compute") ;
         m_torch_internal->m_perf_mng.init("Torch::End") ;
         PerfCounterMngType::Sentry sentry(m_torch_internal->m_perf_mng,"Torch::Prepare") ;
@@ -1169,6 +1171,8 @@ void DSSSolver::initFromConfigFile(std::string const& config_path)
   std::string backend = root.get<std::string>("backend","torch");
   std::string model_path = root.get<std::string>("model");
   m_internal.reset(new Internal) ;
+  m_internal->m_perf_mng.init("DSS::ComputeResults") ;
+  m_internal->m_perf_mng.init("DSS::Solve") ;
   if(backend.compare("torch")==0)
   {
     m_backend_rt = Torch ;
@@ -1176,8 +1180,10 @@ void DSSSolver::initFromConfigFile(std::string const& config_path)
     m_torch_internal.reset(new TorchInternal) ;
     m_torch_internal->m_perf_mng.init("Torch::Init") ;
     m_torch_internal->m_perf_mng.init("Torch::Prepare") ;
+    m_torch_internal->m_perf_mng.init("Torch::Compute0") ;
     m_torch_internal->m_perf_mng.init("Torch::Compute") ;
     m_torch_internal->m_perf_mng.init("Torch::End") ;
+    m_torch_internal->m_torch_count = 0 ;
     PerfCounterMngType::Sentry sentry(m_torch_internal->m_perf_mng,"Torch::Prepare") ;
     m_torch_internal->m_model = read_model(model_path, m_use_gpu);
 #endif
@@ -1186,7 +1192,6 @@ void DSSSolver::initFromConfigFile(std::string const& config_path)
   {
     m_backend_rt = ONNX ;
 #ifdef USE_ONNX
-    m_onnx_internal.reset(new ONNXInternal) ;
     m_onnx_internal.reset(new ONNXInternal) ;
     m_onnx_internal->m_perf_mng.init("ONNX::Init") ;
     m_onnx_internal->m_perf_mng.init("ONNX::Prepare") ;
@@ -1203,8 +1208,20 @@ void DSSSolver::initFromConfigFile(std::string const& config_path)
       const OrtApi* api = OrtGetApiBase()->GetApi(ORT_API_VERSION);
       api->CreateCUDAProviderOptions(&m_onnx_internal->m_cuda_options);
 
-      std::vector<const char*> keys{"device_id", "gpu_mem_limit", "arena_extend_strategy", "cudnn_conv_algo_search", "do_copy_in_default_stream", "cudnn_conv_use_max_workspace", "cudnn_conv1d_pad_to_nc1d"};
-      std::vector<const char*> values{"0", "2147483648", "kSameAsRequested", "DEFAULT", "1", "1", "1"};
+      std::vector<const char*> keys{"device_id",
+                                    "gpu_mem_limit",
+                                    "arena_extend_strategy",
+                                    "cudnn_conv_algo_search",
+                                    "do_copy_in_default_stream",
+                                    "cudnn_conv_use_max_workspace",
+                                    "cudnn_conv1d_pad_to_nc1d"};
+      std::vector<const char*> values{"0",
+                                      "2147483648",
+                                      "kSameAsRequested",
+                                      "DEFAULT",
+                                      "1",
+                                      "1",
+                                      "1"};
 
       api->UpdateCUDAProviderOptions(m_onnx_internal->m_cuda_options, keys.data(), values.data(), keys.size());
       api->UpdateCUDAProviderOptionsWithValue(m_onnx_internal->m_cuda_options, "user_compute_stream", m_onnx_internal->m_cuda_compute_stream) ;
@@ -1233,6 +1250,46 @@ void DSSSolver::initFromConfigFile(std::string const& config_path)
   }
 }
 
+
+void DSSSolver::initPerfInfo()
+{
+  if(m_internal.get())
+  {
+    m_internal->m_perf_mng.init("DSS::ComputeResults") ;
+    m_internal->m_perf_mng.init("DSS::Solve") ;
+  }
+
+  switch(m_backend_rt)
+  {
+    case Torch:
+      if(m_torch_internal.get())
+      {
+        m_torch_internal->m_perf_mng.init("Torch::Init") ;
+        m_torch_internal->m_perf_mng.init("Torch::Prepare") ;
+        m_torch_internal->m_perf_mng.init("Torch::Compute0") ;
+        m_torch_internal->m_perf_mng.init("Torch::Compute") ;
+        m_torch_internal->m_perf_mng.init("Torch::End") ;
+      }
+      break ;
+    case ONNX :
+      if(m_onnx_internal.get())
+      {
+        m_onnx_internal->m_perf_mng.init("ONNX::Init") ;
+        m_onnx_internal->m_perf_mng.init("ONNX::Prepare") ;
+        m_onnx_internal->m_perf_mng.init("ONNX::Compute") ;
+        m_onnx_internal->m_perf_mng.init("ONNX::End") ;
+      }
+      break ;
+    case TensorRT:
+      if(m_tensorrt_internal.get())
+      {
+        m_tensorrt_internal->m_perf_mng.init("TensorRT::Init") ;
+        m_tensorrt_internal->m_perf_mng.init("TensorRT::Prepare") ;
+        m_tensorrt_internal->m_perf_mng.init("TensorRT::Compute") ;
+        m_tensorrt_internal->m_perf_mng.init("TensorRT::End") ;
+      }
+  }
+}
 template<typename value_type, typename PTGraphT>
 std::vector<ml4cfd::PredictionT<value_type> >
 forwardT(std::vector<PTGraphT>& graphs,
@@ -1566,8 +1623,21 @@ DSSSolver::_infer32(GraphData const& data, bool use_gpu, int nb_args, std::size_
   {
     case Torch:
     {
-      PerfCounterMngType::Sentry sentry(m_torch_internal->m_perf_mng,"Torch::Compute") ;
-      return infer(m_torch_internal->m_model, data.m_internal->m_pt_graph32_list, use_gpu,nb_args, batch_size) ;
+      if(m_torch_internal->m_torch_count<5)
+      {
+        std::cout<<"FIRST TORCH COMPUTE "<<m_torch_internal->m_torch_count<<std::endl ;
+        ++m_torch_internal->m_torch_count ;
+        PerfCounterMngType::Sentry sentry(m_torch_internal->m_perf_mng,"Torch::Compute0") ;
+        return infer(m_torch_internal->m_model, data.m_internal->m_pt_graph32_list, use_gpu,nb_args, batch_size) ;
+      }
+      else
+      {
+        std::cout<<"OTHER TORCH COMPUTE "<<m_torch_internal->m_torch_count<<std::endl ;
+        ++m_torch_internal->m_torch_count ;
+        PerfCounterMngType::Sentry sentry(m_torch_internal->m_perf_mng,"Torch::Compute") ;
+        return infer(m_torch_internal->m_model, data.m_internal->m_pt_graph32_list, use_gpu,nb_args, batch_size) ;
+
+      }
     }
     case ONNX:
     {
@@ -1609,7 +1679,7 @@ DSSSolver::_infer64(GraphData const& data, bool use_gpu, int nb_args, std::size_
 
 bool DSSSolver::solve(GraphData const& data, GraphResults& results)
 {
-  PerfCounterMngType::Sentry sentry(m_internal->m_perf_mng,"DSSSolver::Solve") ;
+  PerfCounterMngType::Sentry sentry(m_internal->m_perf_mng,"DSS::Solve") ;
   switch(m_precision)
   {
     case Float32 :

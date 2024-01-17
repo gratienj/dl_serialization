@@ -53,6 +53,11 @@ namespace ml4cfd {
       return m_batch_size ;
     }
 
+    void setBatchSize(std::size_t batch_size)
+    {
+      m_batch_size = batch_size ;
+    }
+
     double getModelFactor() const {
       return m_model_factor ;
     }
@@ -74,6 +79,8 @@ namespace ml4cfd {
 
 
     bool solve(GraphData const& data, GraphResults& results) ;
+
+    void initPerfInfo() ;
 
   private :
     std::vector<ml4cfd::PredictionT<float> >
