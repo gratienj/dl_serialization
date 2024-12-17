@@ -18,6 +18,8 @@ else()
   set(_CAWFINFERENCE_SEARCH_OPTS)
 endif()
 
+message(status "FIND PACKAGE CAWFINFERERENCE ${CAWFINFERENCE_ROOT}")
+
 #CAWFInference
 find_library(CAWFINFERENCE_LIBRARY
              NAMES CAWFInference
@@ -40,11 +42,21 @@ find_library(INFERENCE_GRPC_PROTO_LIBRARY
             )
 mark_as_advanced(INFERENCE_GRPC_PROTO_LIBRARY)
 
+
+find_library(CAWFINFERENCE_GRPC_PROTO_LIBRARY
+             NAMES cawf_inference_grpc_proto
+             HINTS ${CAWFINFERENCE_ROOT} 
+             PATH_SUFFIXES lib
+            )
+mark_as_advanced(CAWFINFERENCE_GRPC_PROTO_LIBRARY)
+
+
 find_package_handle_standard_args(CAWFINFERENCE 
 	DEFAULT_MSG 
 	CAWFINFERENCE_INCLUDE_DIR 
 	CAWFINFERENCE_LIBRARY
-	INFERENCE_GRPC_PROTO_LIBRARY)
+	INFERENCE_GRPC_PROTO_LIBRARY
+	CAWFINFERENCE_GRPC_PROTO_LIBRARY)
 
 if(CAWFINFERENCE_FOUND AND NOT TARGET cawfinference)
 
@@ -68,6 +80,12 @@ if(CAWFINFERENCE_FOUND AND NOT TARGET cawfinference)
   set_target_properties(inference_grpc_proto PROPERTIES
                      IMPORTED_LINK_INTERFACE_LANGUAGES "CXX"
                      IMPORTED_LOCATION "${INFERENCE_GRPC_PROTO_LIBRARY}")
+
+
+  add_library(cawf_inference_grpc_proto UNKNOWN IMPORTED)
+  set_target_properties(cawf_inference_grpc_proto PROPERTIES
+                     IMPORTED_LINK_INTERFACE_LANGUAGES "CXX"
+                     IMPORTED_LOCATION "${CAWFINFERENCE_GRPC_PROTO_LIBRARY}")
                      
   #Construction de cawfinference
   add_library(cawfinference UNKNOWN IMPORTED)
@@ -78,6 +96,7 @@ if(CAWFINFERENCE_FOUND AND NOT TARGET cawfinference)
   set_property(TARGET cawfinference 
                APPEND PROPERTY INTERFACE_LINK_LIBRARIES  
                         inference_grpc_proto
+                        cawf_inference_grpc_proto
                         #${_REFLECTION}
                         #${_GRPC_GRPCPP}
                        ${_PROTOBUF_LIBPROTOBUF})
@@ -86,4 +105,7 @@ if(CAWFINFERENCE_FOUND AND NOT TARGET cawfinference)
 	INTERFACE_INCLUDE_DIRECTORIES "${CAWFINFERENCE_INCLUDE_DIR}")
   add_definitions(-DUSE_CAWFINFERENCE)
   #target_compile_definitions(cawfinference PRIVATE $<TARGET_PROPERTY:target_compile_definitions,INTERFACE_COMPILE_DEFINITIONS> -DUSE_CAWFINFERENCE)
+  message(status "CAWF INFERENCE LIBRARY FOUND : INCLUDE_DIR = ${CAWFINFERENCE_INCLUDE_DIR}")
+else()
+  message(status "CAWF INFERENCE LIBRARY NOT FOUND")
 endif()

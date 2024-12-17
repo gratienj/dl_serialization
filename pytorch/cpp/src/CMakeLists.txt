@@ -65,6 +65,35 @@ endif()
 INSTALL (TARGETS test_dss.exe RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}/bin")
 endif()
 
+
+if(TARGET cawfinference)
+
+add_executable(test_cawf.exe test_cawf.cpp)
+target_compile_features(test_cawf.exe PRIVATE cxx_std_20)
+target_include_directories(test_cawf.exe PRIVATE ${Boost_INCLUDE_DIR})
+
+target_link_libraries(test_cawf.exe cawfinference carnot ${Boost_LIBRARIES} dl z)
+#    ${_REFLECTION}
+#    ${_GRPC_GRPCPP}
+#    ${_PROTOBUF_LIBPROTOBUF})
+
+INSTALL (TARGETS test_cawf.exe RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}/bin")
+
+
+add_executable(test_geoxim.exe test_geoxim.cpp)
+target_compile_features(test_geoxim.exe PRIVATE cxx_std_20)
+target_include_directories(test_geoxim.exe PRIVATE ${Boost_INCLUDE_DIR})
+target_link_libraries(test_geoxim.exe carnot cawfinference carnot ${Boost_LIBRARIES} dl z)
+#    ${_REFLECTION}
+#    ${_GRPC_GRPCPP}
+#    ${_PROTOBUF_LIBPROTOBUF})
+
+INSTALL (TARGETS test_geoxim.exe RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}/bin")
+
+endif(cawfinference)
+
+
+
 add_executable(test_trt.exe test_trt.cpp)
 target_include_directories(test_trt.exe PRIVATE ${TorchCPP_SOURCE_DIR}/src)
 if(TARGET TensorRT::TensorRT)
